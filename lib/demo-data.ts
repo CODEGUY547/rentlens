@@ -24,9 +24,9 @@ export const demoTenants: TenantRow[] = [
 ];
 
 export const demoPayments: PaymentRow[] = [
-  { id: "p1", tenant_id: "t1", tenant_name: "Sarah Namusoke", amount: 650000, paid_at: "2026-10-04T10:30:00Z", payment_method: "Mobile Money", reference: "MP24100481", receipt_number: "RL-2026-00128" },
-  { id: "p2", tenant_id: "t2", tenant_name: "Daniel Okello", amount: 500000, paid_at: "2026-10-03T08:12:00Z", payment_method: "Bank transfer", reference: "DFCU-44810", receipt_number: "RL-2026-00127" },
-  { id: "p3", tenant_id: "t3", tenant_name: "Mariam Nakiwala", amount: 550000, paid_at: "2026-09-05T15:45:00Z", payment_method: "Cash", reference: null, receipt_number: "RL-2026-00119" },
+  { id: "p1", tenant_id: "t1", tenant_name: "Sarah Namusoke", tenant_phone: "+256 772 445 180", amount: 650000, paid_at: "2026-10-04T10:30:00Z", payment_method: "Mobile Money", reference: "MP24100481", receipt_number: "RL-2026-00128" },
+  { id: "p2", tenant_id: "t2", tenant_name: "Daniel Okello", tenant_phone: "+256 701 982 014", amount: 500000, paid_at: "2026-10-03T08:12:00Z", payment_method: "Bank transfer", reference: "DFCU-44810", receipt_number: "RL-2026-00127" },
+  { id: "p3", tenant_id: "t3", tenant_name: "Mariam Nakiwala", tenant_phone: "+256 755 361 729", amount: 550000, paid_at: "2026-09-05T15:45:00Z", payment_method: "Cash", reference: null, receipt_number: "RL-2026-00119" },
 ];
 
 export const demoMessages: MessageRow[] = [

@@ -117,6 +117,10 @@ textarea { min-height:90px; resize:vertical; }
 .status.overdue,.status.failed { color:var(--red); background:var(--red-soft); }
 .status.queued,.status.due { color:#49677e; background:#e8f0f5; }
 .small-action { color:var(--green); background:#f4f7f5; border:1px solid #dce5df; padding:8px 10px; font-size:11px; }
+.small-action svg { width:14px; height:14px; }
+.small-action:disabled { opacity:.48; cursor:not-allowed; }
+.row-actions { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
+.whatsapp-action { color:#116b43; background:#eaf6ef; border-color:#cce6d7; }
 .side-stack { display:flex; flex-direction:column; gap:18px; }
 .collection-card { color:white; background:var(--green-dark); border-color:var(--green-dark); }
 .collection-card>strong { display:block; font:800 47px "Manrope"; margin:18px 0 10px; }
@@ -155,6 +159,9 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
 .integration-state>svg { color:var(--green); }
 .integration-state strong { font-size:13px; }
 .integration-state p { color:var(--muted); font-size:11px; line-height:1.5; margin:5px 0 0; }
+.manual-steps { display:grid; grid-template-columns:28px 1fr; gap:12px 10px; align-items:center; }
+.manual-steps span { width:28px; height:28px; display:grid; place-items:center; border-radius:50%; color:var(--green); background:var(--green-soft); font-size:11px; font-weight:800; }
+.manual-steps p { margin:0; color:var(--muted); font-size:11px; line-height:1.45; }
 .empty { text-align:center; padding:48px 20px; display:flex; flex-direction:column; align-items:center; }
 .empty i { width:45px; height:45px; border-radius:50%; display:grid; place-items:center; color:var(--green); background:var(--green-soft); margin-bottom:12px; }
 .empty p { color:var(--muted); font-size:12px; }
@@ -226,6 +233,7 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
   .person { min-width:calc(100% - 50px); }
   .balance { align-items:flex-start; margin-left:48px; }
   .small-action { margin-left:auto; }
+  .row-actions .small-action { margin-left:0; }
   .panel { padding:19px; }
   .panel-head { align-items:flex-start; }
   .page-panel .panel-head { flex-wrap:wrap; }

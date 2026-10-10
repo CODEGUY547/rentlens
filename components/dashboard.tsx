@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { demoMessages, demoPayments, demoTenants } from "@/lib/demo-data";
+import { createReminderMessage, createWhatsAppUrl } from "@/lib/manual-whatsapp";
 import type { MessageRow, PaymentRow, TenantRow, TenantStatus } from "@/lib/types";
 
 type Tab = "overview" | "tenants" | "payments" | "messages" | "settings";
@@ -60,14 +61,14 @@ export default function Dashboard({ preview }: { preview: boolean }) {
       if (!auth.user) return router.replace("/login");
       const [tenantResult, paymentResult, messageResult] = await Promise.all([
         supabase.from("tenant_overview").select("*").order("full_name"),
-        supabase.from("payments").select("id,tenant_id,amount,paid_at,payment_method,reference,receipt_number,tenants(full_name)").order("paid_at", { ascending: false }).limit(100),
+        supabase.from("payments").select("id,tenant_id,amount,paid_at,payment_method,reference,receipt_number,tenants(full_name,phone)").order("paid_at", { ascending: false }).limit(100),
         supabase.from("message_log").select("id,type,body,status,created_at,tenants(full_name,phone)").order("created_at", { ascending: false }).limit(100),
       ]);
       if (tenantResult.error) toast.error(tenantResult.error.message);
       else setTenants((tenantResult.data || []) as TenantRow[]);
       if (!paymentResult.error) setPayments((paymentResult.data || []).map((item) => {
-        const joined = item.tenants as unknown as { full_name: string } | null;
-        return { ...item, amount: Number(item.amount), tenant_name: joined?.full_name || "Tenant" } as PaymentRow;
+        const joined = item.tenants as unknown as { full_name: string; phone: string } | null;
+        return { ...item, amount: Number(item.amount), tenant_name: joined?.full_name || "Tenant", tenant_phone: joined?.phone || "" } as PaymentRow;
       }));
       if (!messageResult.error) setMessages((messageResult.data || []).map((item) => {
         const joined = item.tenants as unknown as { full_name: string; phone: string } | null;
@@ -126,14 +127,14 @@ export default function Dashboard({ preview }: { preview: boolean }) {
           ) : tab === "payments" ? (
             <Payments payments={payments} preview={preview} />
           ) : tab === "messages" ? (
-            <Messages messages={messages} />
+            <Messages messages={messages} preview={preview} onStatusChange={(id, status) => setMessages(messages.map((item) => item.id === id ? { ...item, status } : item))} />
           ) : <SettingsPanel preview={preview} />}
         </div>
       </section>
 
       {modal && (
         <ModalShell title={modal === "tenant" ? "Add a tenant" : modal === "payment" ? "Record a payment" : "Record a payment promise"} subtitle={modal === "payment" ? "The balance and receipt will update automatically." : modal === "promise" ? "RentLens will remind this tenant on the promised date." : "Create the tenant and their rental unit."} close={() => setModal(null)}>
-          {modal === "tenant" ? <TenantForm preview={preview} onCreated={(tenant) => { setTenants([...tenants, tenant]); setModal(null); }} /> : modal === "payment" ? <PaymentForm tenants={tenants} selected={selectedTenant} preview={preview} onPaid={(payment, tenantId, newBalance) => { setPayments([payment, ...payments]); setTenants(tenants.map((t) => t.id === tenantId ? { ...t, balance: newBalance, status: newBalance === 0 ? "paid" : "partial", last_payment_at: payment.paid_at } : t)); setModal(null); }} /> : <PromiseForm tenants={tenants} selected={selectedTenant} preview={preview} onSaved={(tenantId, date) => { setTenants(tenants.map((t) => t.id === tenantId ? { ...t, promise_date: date, status: "promised" } : t)); setModal(null); }} />}
+          {modal === "tenant" ? <TenantForm preview={preview} onCreated={(tenant) => { setTenants([...tenants, tenant]); setModal(null); }} /> : modal === "payment" ? <PaymentForm tenants={tenants} selected={selectedTenant} preview={preview} onPaid={(payment, tenantId, newBalance) => { setPayments([payment, ...payments]); setTenants(tenants.map((t) => t.id === tenantId ? { ...t, balance: newBalance, status: newBalance === 0 ? "paid" : "partial", last_payment_at: payment.paid_at } : t)); setModal(null); setTab("payments"); }} /> : <PromiseForm tenants={tenants} selected={selectedTenant} preview={preview} onSaved={(tenantId, date) => { setTenants(tenants.map((t) => t.id === tenantId ? { ...t, promise_date: date, status: "promised" } : t)); setModal(null); }} />}
         </ModalShell>
       )}
     </main>
@@ -171,29 +172,64 @@ function Metric({ icon, label, value, note, tone = "plain" }: { icon: React.Reac
 }
 
 function Tenants({ tenants, query, setQuery, openModal }: { tenants: TenantRow[]; query: string; setQuery: (value: string) => void; openModal: (kind: Modal, id?: string) => void }) {
+  function sendReminder(tenant: TenantRow) {
+    const url = createWhatsAppUrl(tenant.phone, createReminderMessage(tenant));
+    if (!url) return toast.error("Add a valid WhatsApp number for this tenant");
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
   return <section className="panel page-panel">
     <div className="panel-head"><div><h2>Tenants</h2><p>Balances and payment information for every tenant.</p></div><button className="primary" onClick={() => openModal("tenant")}><Plus /> Add tenant</button></div>
     <div className="table-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tenant, unit or phone" /></label><span>{tenants.length} tenants</span></div>
     <div className="responsive-table"><table><thead><tr><th>Tenant</th><th>Monthly rent</th><th>Last payment</th><th>Balance</th><th>Status</th><th /></tr></thead><tbody>
-      {tenants.map((tenant) => <tr key={tenant.id}><td><div className="person-cell"><span className="avatar">{tenant.full_name.slice(0, 2).toUpperCase()}</span><div><strong>{tenant.full_name}</strong><small>{tenant.unit_name} · {tenant.phone}</small></div></div></td><td>{money(tenant.monthly_rent)}</td><td>{niceDate(tenant.last_payment_at)}</td><td><strong>{money(tenant.balance)}</strong>{tenant.promise_date && <small className="cell-note">Promised {niceDate(tenant.promise_date)}</small>}</td><td><StatusBadge status={tenant.status} /></td><td><button className="small-action" onClick={() => openModal("payment", tenant.id)}>Add payment</button></td></tr>)}
+      {tenants.map((tenant) => <tr key={tenant.id}><td><div className="person-cell"><span className="avatar">{tenant.full_name.slice(0, 2).toUpperCase()}</span><div><strong>{tenant.full_name}</strong><small>{tenant.unit_name} · {tenant.phone}</small></div></div></td><td>{money(tenant.monthly_rent)}</td><td>{niceDate(tenant.last_payment_at)}</td><td><strong>{money(tenant.balance)}</strong>{tenant.promise_date && <small className="cell-note">Promised {niceDate(tenant.promise_date)}</small>}</td><td><StatusBadge status={tenant.status} /></td><td><div className="row-actions"><button className="small-action whatsapp-action" disabled={!tenant.whatsapp_opt_in} title={tenant.whatsapp_opt_in ? "Open a prepared reminder in WhatsApp" : "Tenant has not opted in"} onClick={() => sendReminder(tenant)}><MessageCircle /> WhatsApp</button><button className="small-action" onClick={() => openModal("payment", tenant.id)}>Add payment</button></div></td></tr>)}
     </tbody></table></div>
   </section>;
 }
 
 function Payments({ payments, preview }: { payments: PaymentRow[]; preview: boolean }) {
+  async function sendReceipt(payment: PaymentRow) {
+    const popup = window.open("", "_blank");
+    if (!popup) return toast.error("Allow pop-ups so RentLens can open WhatsApp");
+    try {
+      let receiptUrl = `${window.location.origin}/receipt/${payment.id}?demo=1`;
+      if (!preview) {
+        const response = await fetch(`/api/receipts/${payment.id}/share`, { method: "POST" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not prepare the receipt link");
+        receiptUrl = result.url;
+      }
+      const amount = new Intl.NumberFormat("en-UG").format(payment.amount);
+      const message = `Hello ${payment.tenant_name}, thank you. We received your payment of UGX ${amount}. Receipt ${payment.receipt_number}: ${receiptUrl}`;
+      const url = createWhatsAppUrl(payment.tenant_phone, message);
+      if (!url) throw new Error("This tenant does not have a valid WhatsApp number");
+      popup.location.href = url;
+    } catch (cause) {
+      popup.close();
+      toast.error(cause instanceof Error ? cause.message : "Could not open WhatsApp");
+    }
+  }
   return <section className="panel page-panel"><div className="panel-head"><div><h2>Payment history</h2><p>Every confirmed payment and its numbered receipt.</p></div><button className="secondary"><Download /> Export CSV</button></div>
-    <div className="responsive-table"><table><thead><tr><th>Receipt</th><th>Tenant</th><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead><tbody>{payments.map((payment) => <tr key={payment.id}><td><strong>{payment.receipt_number}</strong></td><td>{payment.tenant_name}</td><td>{niceDate(payment.paid_at)}</td><td>{payment.payment_method}</td><td>{payment.reference || "—"}</td><td><strong>{money(payment.amount)}</strong></td><td><a className="small-action" href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank">View receipt</a></td></tr>)}</tbody></table></div>
+    <div className="responsive-table"><table><thead><tr><th>Receipt</th><th>Tenant</th><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead><tbody>{payments.map((payment) => <tr key={payment.id}><td><strong>{payment.receipt_number}</strong></td><td>{payment.tenant_name}</td><td>{niceDate(payment.paid_at)}</td><td>{payment.payment_method}</td><td>{payment.reference || "—"}</td><td><strong>{money(payment.amount)}</strong></td><td><div className="row-actions"><button className="small-action whatsapp-action" onClick={() => sendReceipt(payment)}><Send /> Send receipt</button><a className="small-action" href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">View</a></div></td></tr>)}</tbody></table></div>
   </section>;
 }
 
-function Messages({ messages }: { messages: MessageRow[] }) {
-  return <section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp messages</h2><p>Track every reminder, receipt and thank-you message.</p></div><button className="secondary"><Send /> Send reminder</button></div>
-    <div className="responsive-table"><table><thead><tr><th>Tenant</th><th>Message</th><th>Type</th><th>Sent</th><th>Delivery</th><th /></tr></thead><tbody>{messages.map((message) => <tr key={message.id}><td><strong>{message.tenant_name}</strong><small className="cell-note">{message.phone}</small></td><td className="message-preview">{message.body}</td><td className="capitalize">{message.type.replace("_", " ")}</td><td>{niceDate(message.created_at)}</td><td><StatusBadge status={message.status} /></td><td>{message.status === "failed" && <button className="small-action">Retry</button>}</td></tr>)}</tbody></table></div>
+function Messages({ messages, preview, onStatusChange }: { messages: MessageRow[]; preview: boolean; onStatusChange: (id: string, status: MessageRow["status"]) => void }) {
+  async function openPrepared(message: MessageRow) {
+    const url = createWhatsAppUrl(message.phone, message.body);
+    if (!url) return toast.error("This tenant does not have a valid WhatsApp number");
+    window.open(url, "_blank", "noopener,noreferrer");
+    if (!preview && message.status === "queued") {
+      const { error } = await createClient()!.from("message_log").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", message.id);
+      if (!error) onStatusChange(message.id, "sent");
+    }
+  }
+  return <section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp outbox</h2><p>RentLens prepares reminders; you review and send them from your WhatsApp.</p></div></div>
+    <div className="responsive-table"><table><thead><tr><th>Tenant</th><th>Message</th><th>Type</th><th>Prepared</th><th>Status</th><th /></tr></thead><tbody>{messages.map((message) => <tr key={message.id}><td><strong>{message.tenant_name}</strong><small className="cell-note">{message.phone}</small></td><td className="message-preview">{message.body}</td><td className="capitalize">{message.type.replace("_", " ")}</td><td>{niceDate(message.created_at)}</td><td><StatusBadge status={message.status} /></td><td><button className="small-action whatsapp-action" onClick={() => openPrepared(message)}><MessageCircle /> {message.status === "queued" ? "Review & send" : "Open again"}</button></td></tr>)}</tbody></table></div>
   </section>;
 }
 
 function SettingsPanel({ preview }: { preview: boolean }) {
-  return <div className="settings-grid"><section className="panel page-panel"><div className="panel-head"><div><h2>Reminder rules</h2><p>Choose how RentLens follows up on rent.</p></div></div><SettingRow title="Before rent is due" text="Send a friendly reminder 3 days before the due date." /><SettingRow title="On the due date" text="Remind tenants on their personal due date." /><SettingRow title="Overdue follow-up" text="Repeat every 7 days while a balance remains." /><SettingRow title="Payment promises" text="Send a reminder at 9:00 AM on the promised date." /></section><section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp connection</h2><p>Official WhatsApp Business Platform status.</p></div></div><div className={`integration-state ${preview ? "pending" : ""}`}><MessageCircle /><div><strong>{preview ? "Not connected in preview" : "Environment configuration"}</strong><p>Add the WhatsApp credentials in Vercel to activate automatic messaging.</p></div></div><button className="secondary full">View setup guide</button></section></div>;
+  return <div className="settings-grid"><section className="panel page-panel"><div className="panel-head"><div><h2>Reminder preparation</h2><p>RentLens checks who needs attention and prepares the message.</p></div></div><SettingRow title="Before rent is due" text="Prepare a friendly reminder 3 days before the due date." /><SettingRow title="On the due date" text="Prepare a reminder on each tenant’s due date." /><SettingRow title="Overdue follow-up" text="Prepare another reminder every 7 days while a balance remains." /><SettingRow title="Payment promises" text="Prepare a reminder on the tenant’s promised payment date." /></section><section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp sending</h2><p>Manual, safe and ready to use.</p></div></div><div className={`integration-state ${preview ? "pending" : ""}`}><MessageCircle /><div><strong>Manual WhatsApp is active</strong><p>RentLens prepares the message and secure receipt link. You review it and tap Send in WhatsApp.</p></div></div><div className="manual-steps"><span>1</span><p>Open a tenant or prepared reminder.</p><span>2</span><p>Review the message in WhatsApp.</p><span>3</span><p>Tap Send from the landlord’s account.</p></div></section></div>;
 }
 
 function SettingRow({ title, text }: { title: string; text: string }) { return <div className="setting-row"><div><strong>{title}</strong><p>{text}</p></div><label className="toggle"><input type="checkbox" defaultChecked /><span /></label></div>; }
@@ -229,10 +265,9 @@ function PaymentForm({ tenants, selected, preview, onPaid }: { tenants: TenantRo
       const { data, error } = await createClient()!.rpc("record_rent_payment", { p_tenant_id: form.tenantId, p_amount: Number(form.amount), p_payment_method: form.method, p_reference: form.reference || null, p_paid_at: new Date(form.paidAt).toISOString() });
       if (error) { setSaving(false); return toast.error(error.message); }
       id = data.id; receipt = data.receipt_number;
-      fetch("/api/messages/payment-confirmed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paymentId: id }) }).catch(() => undefined);
     }
-    const payment: PaymentRow = { id, tenant_id: tenant.id, tenant_name: tenant.full_name, amount: Number(form.amount), paid_at: new Date(form.paidAt).toISOString(), payment_method: form.method, reference: form.reference || null, receipt_number: receipt };
-    toast.success("Payment confirmed and receipt created"); onPaid(payment, tenant.id, Math.max(0, tenant.balance - Number(form.amount))); setSaving(false);
+    const payment: PaymentRow = { id, tenant_id: tenant.id, tenant_name: tenant.full_name, tenant_phone: tenant.phone, amount: Number(form.amount), paid_at: new Date(form.paidAt).toISOString(), payment_method: form.method, reference: form.reference || null, receipt_number: receipt };
+    toast.success("Payment confirmed. Send the receipt from Payment history."); onPaid(payment, tenant.id, Math.max(0, tenant.balance - Number(form.amount))); setSaving(false);
   }
   return <form className="modal-form" onSubmit={submit}><label>Tenant<select value={form.tenantId} onChange={(e) => setForm({ ...form, tenantId: e.target.value })}>{tenants.map((item) => <option key={item.id} value={item.id}>{item.full_name} — {item.unit_name}</option>)}</select></label>{tenant && <div className="balance-callout"><span>Current balance</span><strong>{money(tenant.balance)}</strong></div>}<div className="form-grid"><label>Amount received (UGX)<input autoFocus required type="number" min="1" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="500000" /></label><label>Payment date<input required type="date" value={form.paidAt} onChange={(e) => setForm({ ...form, paidAt: e.target.value })} /></label><label>Payment method<select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}><option>Mobile Money</option><option>Bank transfer</option><option>Cash</option><option>Cheque</option></select></label><label>Transaction reference<input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder="Optional" /></label></div><div className="consent-note"><ReceiptText /> A numbered receipt and thank-you message will be prepared after confirmation.</div><button className="primary full" disabled={saving}>{saving ? "Confirming…" : "Confirm payment & create receipt"}</button></form>;
 }

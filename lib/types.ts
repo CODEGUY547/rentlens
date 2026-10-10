@@ -18,6 +18,7 @@ export interface PaymentRow {
   id: string;
   tenant_id: string;
   tenant_name: string;
+  tenant_phone: string;
   amount: number;
   paid_at: string;
   payment_method: string;

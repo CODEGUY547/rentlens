@@ -17,7 +17,7 @@ export default async function ReceiptPage({ params, searchParams }: { params: Pr
       const { data } = await supabase.from("payments").select("id, amount, paid_at, payment_method, reference, receipt_number, tenant_id, tenants(full_name, phone, unit_name)").eq("id", id).single();
       if (data) {
         const joined = data.tenants as unknown as { full_name: string; phone: string; unit_name: string };
-        payment = { id: data.id, tenant_id: data.tenant_id, tenant_name: joined.full_name, amount: Number(data.amount), paid_at: data.paid_at, payment_method: data.payment_method, reference: data.reference, receipt_number: data.receipt_number };
+        payment = { id: data.id, tenant_id: data.tenant_id, tenant_name: joined.full_name, tenant_phone: joined.phone, amount: Number(data.amount), paid_at: data.paid_at, payment_method: data.payment_method, reference: data.reference, receipt_number: data.receipt_number };
         tenant = { id: data.tenant_id, full_name: joined.full_name, phone: joined.phone, unit_name: joined.unit_name, monthly_rent: 0, due_day: 1, balance: 0, last_payment_at: data.paid_at, promise_date: null, status: "paid", whatsapp_opt_in: true };
       }
     }
