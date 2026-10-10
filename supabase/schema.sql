@@ -207,6 +207,18 @@ create policy "own tenants" on public.tenants for all using (landlord_id=auth.ui
 create policy "own charges" on public.charges for all using (landlord_id=auth.uid()) with check (landlord_id=auth.uid());
 create policy "own payments" on public.payments for all using (landlord_id=auth.uid()) with check (landlord_id=auth.uid());
 create policy "own allocations" on public.payment_allocations for select using (exists(select 1 from public.payments p where p.id=payment_id and p.landlord_id=auth.uid()));
+create policy "insert own allocations" on public.payment_allocations for insert to authenticated
+with check (
+  exists (
+    select 1
+    from public.payments p
+    join public.charges c on c.id = payment_allocations.charge_id
+    where p.id = payment_allocations.payment_id
+      and p.landlord_id = auth.uid()
+      and c.landlord_id = auth.uid()
+      and p.tenant_id = c.tenant_id
+  )
+);
 create policy "own promises" on public.payment_promises for all using (landlord_id=auth.uid()) with check (landlord_id=auth.uid());
 create policy "own messages" on public.message_log for all using (landlord_id=auth.uid()) with check (landlord_id=auth.uid());
 create policy "own settings" on public.landlord_settings for all using (landlord_id=auth.uid()) with check (landlord_id=auth.uid());
