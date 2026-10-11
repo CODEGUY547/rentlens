@@ -201,22 +201,43 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
 .loading-grid i { height:150px; border-radius:17px; background:linear-gradient(90deg,#edf0ee,#f8f9f8,#edf0ee); background-size:200% 100%; animation:shimmer 1.2s infinite; }
 @keyframes shimmer { to { background-position:-200% 0; } }
 
-.receipt-page { min-height:100vh; padding:50px 20px; background:#eff2ed; }
-.receipt-card { max-width:760px; margin:auto; background:white; border-radius:20px; overflow:hidden; box-shadow:0 18px 70px rgba(24,47,36,.13); }
-.receipt-card>header { padding:28px 34px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); }
-.receipt-status { color:var(--green); display:flex; gap:8px; align-items:center; font-size:12px; font-weight:800; }
-.receipt-status svg { width:19px; }
-.receipt-hero { padding:48px 34px; text-align:center; background:var(--green-dark); color:white; }
-.receipt-hero span { color:#a9cfbc; font-size:11px; font-weight:700; letter-spacing:.15em; }
-.receipt-hero strong { display:block; font:800 44px "Manrope"; margin:11px 0 3px; }
-.receipt-hero p { color:#c5ddd1; margin:0; }
-.receipt-grid { display:grid; grid-template-columns:1fr 1fr; padding:22px 34px; }
-.receipt-grid div { display:flex; flex-direction:column; gap:6px; padding:18px 0; border-bottom:1px solid #edf0ee; }
-.receipt-grid div:nth-child(even) { padding-left:30px; }
-.receipt-grid span { color:var(--muted); font-size:11px; }
-.receipt-grid strong { font-size:13px; }
-.receipt-card footer { padding:10px 34px 30px; text-align:center; color:var(--muted); font-size:11px; }
-.print-note { border:0; background:transparent; color:var(--green); font-weight:700; }
+.estate-receipt-page { min-height:100vh; padding:34px 18px 60px; background:#edf2f7; color:#0a2e63; }
+.receipt-toolbar { width:min(780px,100%); margin:0 auto 14px; display:flex; align-items:center; justify-content:space-between; gap:16px; color:#17436f; font-size:12px; font-weight:800; }
+.receipt-toolbar>span,.receipt-print-button { display:flex; align-items:center; gap:8px; }
+.receipt-toolbar svg,.receipt-print-button svg { width:17px; }
+.receipt-print-button { border:0; border-radius:9px; padding:10px 14px; color:white; background:#0b3d75; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.estate-receipt { width:min(780px,100%); min-height:1000px; position:relative; overflow:hidden; margin:auto; padding:36px 42px 26px; background:white; border-radius:5px; box-shadow:0 18px 65px rgba(15,49,87,.14); }
+.estate-header { position:relative; z-index:1; }
+.estate-logo { display:flex; align-items:center; justify-content:center; gap:17px; }
+.estate-logo>span { width:104px; height:92px; display:grid; place-items:center; color:white; background:linear-gradient(145deg,#0b4d8d,#062c60); clip-path:polygon(15% 25%,50% 0,86% 24%,100% 72%,50% 100%,0 72%); }
+.estate-logo>span svg { width:64px; height:64px; stroke-width:1.5; }
+.estate-logo h1 { margin:0; color:#082f68; font:800 clamp(35px,7vw,64px)/.9 Georgia,serif; letter-spacing:-.045em; }
+.estate-logo p { margin:8px 0 0; color:#082f68; font:800 clamp(18px,3vw,28px)/1 "Manrope",sans-serif; text-align:center; }
+.estate-rule { height:4px; border-block:2px solid #0b4d8d; margin:20px 0; }
+.receipt-meta { display:flex; justify-content:space-between; gap:20px; font-size:17px; }
+.receipt-meta p { margin:0; }
+.receipt-meta strong { color:#102f57; }
+.receipt-meta p:first-child strong { color:#e3212a; font-size:25px; }
+.estate-header h2 { width:fit-content; margin:20px auto 30px; padding:10px 38px; border:4px double #0b3d75; border-radius:40px; color:#0a356b; font:800 clamp(20px,4vw,31px)/1 "Manrope",sans-serif; letter-spacing:.02em; }
+.estate-watermark { position:absolute; z-index:0; left:50%; top:390px; transform:translateX(-50%); color:#e6f0f9; opacity:.6; }
+.estate-watermark svg { width:300px; height:300px; stroke-width:1; }
+.receipt-fields { position:relative; z-index:1; display:grid; gap:18px; }
+.receipt-field { display:grid; grid-template-columns:190px 16px 1fr; align-items:end; min-height:37px; font-size:16px; }
+.receipt-field>strong { color:#0a3268; }
+.receipt-field>i { font-style:normal; font-weight:800; }
+.receipt-field>span { min-height:29px; padding:0 5px 7px; color:#183d68; border-bottom:1px dashed #54a2cb; }
+.receipt-field>span.emphasis { font-weight:800; }
+.receipt-total { position:relative; z-index:1; display:grid; grid-template-columns:260px 35px 1fr; align-items:center; margin:30px 0 26px; padding:17px 25px; border-radius:9px; color:#0b356b; background:#e0edf9; font:800 clamp(20px,4vw,30px)/1.2 "Manrope",sans-serif; }
+.receipt-total i { font-style:normal; }
+.receipt-fields-lower { gap:14px; }
+.receipt-thanks { position:relative; z-index:1; display:flex; flex-direction:column; align-items:flex-end; margin:58px 8px 26px; color:#072f67; }
+.receipt-thanks strong { font:italic 700 clamp(38px,7vw,56px)/1 cursive; }
+.receipt-thanks span { margin-top:5px; font-weight:700; }
+.estate-receipt footer { position:relative; z-index:1; text-align:center; }
+.estate-receipt footer .estate-rule { margin-bottom:17px; }
+.estate-receipt footer p { display:flex; justify-content:center; align-items:center; gap:8px; margin:0; font-size:11px; font-weight:800; letter-spacing:.32em; }
+.estate-receipt footer p svg { width:16px; }
+.estate-receipt footer small { display:block; margin-top:9px; color:#71859c; font-size:9px; }
 
 @media (max-width:1050px) {
   .metric-grid { grid-template-columns:1fr 1fr; }
@@ -260,12 +281,19 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
   th:first-child,td:first-child { padding-left:19px; }
   .form-grid { grid-template-columns:1fr; }
   .form-grid .wide { grid-column:auto; }
-  .receipt-card>header { padding:22px; }
-  .receipt-status { font-size:0; }
-  .receipt-hero { padding:38px 20px; }
-  .receipt-hero strong { font-size:34px; }
-  .receipt-grid { grid-template-columns:1fr; padding:15px 22px; }
-  .receipt-grid div:nth-child(even) { padding-left:0; }
+  .estate-receipt-page { padding:18px 10px 45px; }
+  .estate-receipt { min-height:900px; padding:25px 20px 22px; }
+  .estate-logo { gap:10px; }
+  .estate-logo>span { width:72px; height:67px; }
+  .estate-logo>span svg { width:45px; height:45px; }
+  .receipt-meta { font-size:13px; }
+  .receipt-meta p:first-child strong { font-size:18px; }
+  .estate-header h2 { padding:9px 22px; margin-bottom:25px; }
+  .receipt-field { grid-template-columns:125px 12px 1fr; font-size:12px; }
+  .receipt-total { grid-template-columns:1fr 18px 1.4fr; padding:15px; }
+  .estate-watermark { top:360px; }
+  .estate-watermark svg { width:220px; height:220px; }
+  .receipt-thanks { margin-top:45px; }
 }
 @media (max-width:480px) {
   .auth-form-wrap { align-items:start; }
@@ -276,7 +304,8 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
   .modal { border-radius:20px 20px 0 0; max-height:95vh; }
 }
 @media print {
-  .receipt-page { background:white; padding:0; }
-  .receipt-card { box-shadow:none; max-width:none; border-radius:0; }
-  .print-note { display:none; }
+  @page { size:A4; margin:0; }
+  .estate-receipt-page { background:white; padding:0; }
+  .receipt-toolbar { display:none; }
+  .estate-receipt { width:100%; min-height:100vh; box-shadow:none; border-radius:0; }
 }
