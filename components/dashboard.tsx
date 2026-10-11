@@ -214,18 +214,72 @@ function Payments({ payments, preview }: { payments: PaymentRow[]; preview: bool
 }
 
 function Messages({ messages, preview, onStatusChange }: { messages: MessageRow[]; preview: boolean; onStatusChange: (id: string, status: MessageRow["status"]) => void }) {
-  async function openPrepared(message: MessageRow) {
+  const [sendQueue, setSendQueue] = useState<MessageRow[]>([]);
+  const [queueIndex, setQueueIndex] = useState<number | null>(null);
+  const [whatsAppOpened, setWhatsAppOpened] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const pendingMessages = messages.filter((message) => message.status === "queued" || message.status === "failed");
+  const currentMessage = queueIndex === null ? null : sendQueue[queueIndex];
+  const queueComplete = queueIndex !== null && queueIndex >= sendQueue.length;
+
+  function openPrepared(message: MessageRow) {
     const url = createWhatsAppUrl(message.phone, message.body);
-    if (!url) return toast.error("This tenant does not have a valid WhatsApp number");
-    window.open(url, "_blank", "noopener,noreferrer");
-    if (!preview && message.status === "queued") {
-      const { error } = await createClient()!.from("message_log").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", message.id);
-      if (!error) onStatusChange(message.id, "sent");
-    }
+    if (!url) { toast.error("This tenant does not have a valid WhatsApp number"); return false; }
+    const popup = window.open(url, "_blank");
+    if (!popup) { toast.error("Allow pop-ups so RentLens can open WhatsApp"); return false; }
+    popup.opener = null;
+    return true;
   }
-  return <section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp outbox</h2><p>RentLens prepares reminders; you review and send them from your WhatsApp.</p></div></div>
-    <div className="responsive-table"><table><thead><tr><th>Tenant</th><th>Message</th><th>Type</th><th>Prepared</th><th>Status</th><th /></tr></thead><tbody>{messages.map((message) => <tr key={message.id}><td><strong>{message.tenant_name}</strong><small className="cell-note">{message.phone}</small></td><td className="message-preview">{message.body}</td><td className="capitalize">{message.type.replace("_", " ")}</td><td>{niceDate(message.created_at)}</td><td><StatusBadge status={message.status} /></td><td><button className="small-action whatsapp-action" onClick={() => openPrepared(message)}><MessageCircle /> {message.status === "queued" ? "Review & send" : "Open again"}</button></td></tr>)}</tbody></table></div>
-  </section>;
+
+  function startQueue() {
+    setSendQueue(pendingMessages);
+    setQueueIndex(0);
+    setWhatsAppOpened(false);
+  }
+
+  function closeQueue() {
+    setQueueIndex(null);
+    setSendQueue([]);
+    setWhatsAppOpened(false);
+  }
+
+  function openCurrentMessage() {
+    if (currentMessage && openPrepared(currentMessage)) setWhatsAppOpened(true);
+  }
+
+  async function confirmSent() {
+    if (!currentMessage) return;
+    setSaving(true);
+    if (!preview) {
+      const { error } = await createClient()!.from("message_log").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", currentMessage.id);
+      if (error) { setSaving(false); return toast.error(error.message); }
+    }
+    onStatusChange(currentMessage.id, "sent");
+    setQueueIndex((index) => (index ?? 0) + 1);
+    setWhatsAppOpened(false);
+    setSaving(false);
+  }
+
+  function skipCurrent() {
+    setQueueIndex((index) => (index ?? 0) + 1);
+    setWhatsAppOpened(false);
+  }
+  return <>
+    <section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp outbox</h2><p>RentLens prepares reminders; you review and send them from your WhatsApp.</p></div><button className="primary" disabled={!pendingMessages.length} onClick={startQueue}><Send /> Send all prepared {pendingMessages.length ? `(${pendingMessages.length})` : ""}</button></div>
+      {!pendingMessages.length && <div className="outbox-clear"><Check /> All prepared messages have been handled.</div>}
+      <div className="responsive-table"><table><thead><tr><th>Tenant</th><th>Message</th><th>Type</th><th>Prepared</th><th>Status</th><th /></tr></thead><tbody>{messages.map((message) => <tr key={message.id}><td><strong>{message.tenant_name}</strong><small className="cell-note">{message.phone}</small></td><td className="message-preview">{message.body}</td><td className="capitalize">{message.type.replace("_", " ")}</td><td>{niceDate(message.created_at)}</td><td><StatusBadge status={message.status} /></td><td><button className="small-action whatsapp-action" onClick={() => openPrepared(message)}><MessageCircle /> {message.status === "queued" || message.status === "failed" ? "Review & send" : "Open again"}</button></td></tr>)}</tbody></table></div>
+    </section>
+    {queueIndex !== null && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="queue-title"><section className="modal queue-modal">
+      <header><div><h2 id="queue-title">{queueComplete ? "Queue complete" : "Send prepared messages"}</h2><p>{queueComplete ? "You have reviewed every message in this batch." : `Message ${queueIndex + 1} of ${sendQueue.length}`}</p></div><button className="icon-button" onClick={closeQueue} aria-label="Close message queue"><X /></button></header>
+      {queueComplete ? <div className="queue-complete"><span><Check /></span><h3>All prepared messages reviewed</h3><p>Sent messages are now marked in your outbox. Any messages you skipped remain ready for later.</p><button className="primary full" onClick={closeQueue}>Done</button></div> : currentMessage && <div className="queue-body">
+        <div className="queue-progress" aria-label={`${queueIndex + 1} of ${sendQueue.length} messages`}><i style={{ width: `${((queueIndex + 1) / sendQueue.length) * 100}%` }} /></div>
+        <div className="queue-person"><span className="avatar">{currentMessage.tenant_name.slice(0, 2).toUpperCase()}</span><div><strong>{currentMessage.tenant_name}</strong><small>{currentMessage.phone}</small></div><StatusBadge status={currentMessage.status} /></div>
+        <div className="queue-message"><span>Prepared message</span><p>{currentMessage.body}</p></div>
+        <div className="queue-note"><MessageCircle /> WhatsApp will open with this message. Tap Send there, return here, then confirm to continue.</div>
+        <div className="queue-actions">{!whatsAppOpened ? <button className="primary full" onClick={openCurrentMessage}><MessageCircle /> Open in WhatsApp</button> : <button className="primary full" disabled={saving} onClick={confirmSent}><Check /> {saving ? "Saving…" : "Sent — next message"}</button>}<button className="secondary full" onClick={skipCurrent}>Skip for now</button></div>
+      </div>}
+    </section></div>}
+  </>;
 }
 
 function SettingsPanel({ preview }: { preview: boolean }) {
