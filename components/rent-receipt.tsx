@@ -1,5 +1,6 @@
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { PrintReceiptButton } from "@/components/print-receipt-button";
+import { ShareReceiptButton } from "@/components/share-receipt-button";
 
 type RentReceiptProps = {
   receiptNumber: string;
@@ -23,8 +24,8 @@ export function RentReceipt({ receiptNumber, paidAt, tenantName, unitName, amoun
   const monthPaid = date.toLocaleDateString("en-UG", { month: "long", year: "numeric" });
 
   return <main className="estate-receipt-page">
-    <div className="receipt-toolbar"><span><CheckCircle2 /> Payment confirmed</span><PrintReceiptButton /></div>
-    <section className="estate-receipt" aria-label={`Rent receipt ${receiptNumber}`}>
+    <div className="receipt-toolbar"><span><CheckCircle2 /> Payment confirmed</span><div className="receipt-toolbar-actions"><ShareReceiptButton receiptNumber={receiptNumber} tenantName={tenantName} /><PrintReceiptButton /></div></div>
+    <section id="rent-receipt-card" className="estate-receipt" aria-label={`Rent receipt ${receiptNumber}`}>
       <header className="estate-header">
         <div className="estate-logo"><span><Building2 /></span><div><h1>ELIAS ESTATES</h1><p>Tel: 0750668419</p></div></div>
         <div className="estate-rule" />

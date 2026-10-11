@@ -187,29 +187,13 @@ function Tenants({ tenants, query, setQuery, openModal }: { tenants: TenantRow[]
 }
 
 function Payments({ payments, preview }: { payments: PaymentRow[]; preview: boolean }) {
-  async function sendReceipt(payment: PaymentRow) {
-    const popup = window.open("", "_blank");
-    if (!popup) return toast.error("Allow pop-ups so RentLens can open WhatsApp");
-    try {
-      let receiptUrl = `${window.location.origin}/receipt/${payment.id}?demo=1`;
-      if (!preview) {
-        const response = await fetch(`/api/receipts/${payment.id}/share`, { method: "POST" });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Could not prepare the receipt link");
-        receiptUrl = result.url;
-      }
-      const amount = new Intl.NumberFormat("en-UG").format(payment.amount);
-      const message = `Hello ${payment.tenant_name}, thank you. We received your payment of UGX ${amount}. Receipt ${payment.receipt_number}: ${receiptUrl}`;
-      const url = createWhatsAppUrl(payment.tenant_phone, message);
-      if (!url) throw new Error("This tenant does not have a valid WhatsApp number");
-      popup.location.href = url;
-    } catch (cause) {
-      popup.close();
-      toast.error(cause instanceof Error ? cause.message : "Could not open WhatsApp");
-    }
+  function shareReceipt(payment: PaymentRow) {
+    const receiptUrl = `/receipt/${payment.id}${preview ? "?demo=1" : ""}`;
+    const popup = window.open(receiptUrl, "_blank", "noopener,noreferrer");
+    if (!popup) toast.error("Allow pop-ups so RentLens can open the receipt");
   }
   return <section className="panel page-panel"><div className="panel-head"><div><h2>Payment history</h2><p>Every confirmed payment and its numbered receipt.</p></div><button className="secondary"><Download /> Export CSV</button></div>
-    <div className="responsive-table"><table><thead><tr><th>Receipt</th><th>Tenant</th><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead><tbody>{payments.map((payment) => <tr key={payment.id}><td><strong>{payment.receipt_number}</strong></td><td>{payment.tenant_name}</td><td>{niceDate(payment.paid_at)}</td><td>{payment.payment_method}</td><td>{payment.reference || "—"}</td><td><strong>{money(payment.amount)}</strong></td><td><div className="row-actions"><button className="small-action whatsapp-action" onClick={() => sendReceipt(payment)}><Send /> Send receipt</button><a className="small-action" href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">View</a></div></td></tr>)}</tbody></table></div>
+    <div className="responsive-table"><table><thead><tr><th>Receipt</th><th>Tenant</th><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead><tbody>{payments.map((payment) => <tr key={payment.id}><td><strong>{payment.receipt_number}</strong></td><td>{payment.tenant_name}</td><td>{niceDate(payment.paid_at)}</td><td>{payment.payment_method}</td><td>{payment.reference || "—"}</td><td><strong>{money(payment.amount)}</strong></td><td><div className="row-actions"><button className="small-action whatsapp-action" onClick={() => shareReceipt(payment)}><Send /> Share receipt</button><a className="small-action" href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">View</a></div></td></tr>)}</tbody></table></div>
   </section>;
 }
 
@@ -283,7 +267,7 @@ function Messages({ messages, preview, onStatusChange }: { messages: MessageRow[
 }
 
 function SettingsPanel({ preview }: { preview: boolean }) {
-  return <div className="settings-grid"><section className="panel page-panel"><div className="panel-head"><div><h2>Reminder preparation</h2><p>RentLens checks who needs attention and prepares the message.</p></div></div><SettingRow title="Before rent is due" text="Prepare a friendly reminder 3 days before the due date." /><SettingRow title="On the due date" text="Prepare a reminder on each tenant’s due date." /><SettingRow title="Overdue follow-up" text="Prepare another reminder every 7 days while a balance remains." /><SettingRow title="Payment promises" text="Prepare a reminder on the tenant’s promised payment date." /></section><section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp sending</h2><p>Manual, safe and ready to use.</p></div></div><div className={`integration-state ${preview ? "pending" : ""}`}><MessageCircle /><div><strong>Manual WhatsApp is active</strong><p>RentLens prepares the message and secure receipt link. You review it and tap Send in WhatsApp.</p></div></div><div className="manual-steps"><span>1</span><p>Open a tenant or prepared reminder.</p><span>2</span><p>Review the message in WhatsApp.</p><span>3</span><p>Tap Send from the landlord’s account.</p></div></section></div>;
+  return <div className="settings-grid"><section className="panel page-panel"><div className="panel-head"><div><h2>Reminder preparation</h2><p>RentLens checks who needs attention and prepares the message.</p></div></div><SettingRow title="Before rent is due" text="Prepare a friendly reminder 3 days before the due date." /><SettingRow title="On the due date" text="Prepare a reminder on each tenant’s due date." /><SettingRow title="Overdue follow-up" text="Prepare another reminder every 7 days while a balance remains." /><SettingRow title="Payment promises" text="Prepare a reminder on the tenant’s promised payment date." /></section><section className="panel page-panel"><div className="panel-head"><div><h2>WhatsApp sending</h2><p>Manual, safe and ready to use.</p></div></div><div className={`integration-state ${preview ? "pending" : ""}`}><MessageCircle /><div><strong>Direct receipt sharing is active</strong><p>RentLens creates the receipt as an image. Choose WhatsApp, select the tenant and tap Send.</p></div></div><div className="manual-steps"><span>1</span><p>Open a receipt from Payment history.</p><span>2</span><p>Tap Share receipt image and choose WhatsApp.</p><span>3</span><p>Select the tenant and tap Send.</p></div></section></div>;
 }
 
 function SettingRow({ title, text }: { title: string; text: string }) { return <div className="setting-row"><div><strong>{title}</strong><p>{text}</p></div><label className="toggle"><input type="checkbox" defaultChecked /><span /></label></div>; }

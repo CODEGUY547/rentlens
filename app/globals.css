@@ -203,9 +203,12 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
 
 .estate-receipt-page { min-height:100vh; padding:34px 18px 60px; background:#edf2f7; color:#0a2e63; }
 .receipt-toolbar { width:min(780px,100%); margin:0 auto 14px; display:flex; align-items:center; justify-content:space-between; gap:16px; color:#17436f; font-size:12px; font-weight:800; }
-.receipt-toolbar>span,.receipt-print-button { display:flex; align-items:center; gap:8px; }
-.receipt-toolbar svg,.receipt-print-button svg { width:17px; }
-.receipt-print-button { border:0; border-radius:9px; padding:10px 14px; color:white; background:#0b3d75; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.receipt-toolbar>span,.receipt-print-button,.receipt-share-button { display:flex; align-items:center; gap:8px; }
+.receipt-toolbar-actions { display:flex; align-items:center; gap:9px; }
+.receipt-toolbar svg,.receipt-print-button svg,.receipt-share-button svg { width:17px; }
+.receipt-print-button,.receipt-share-button { border:0; border-radius:9px; padding:10px 14px; color:white; background:#0b3d75; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.receipt-share-button { background:#087443; }
+.receipt-print-button:disabled,.receipt-share-button:disabled { cursor:wait; opacity:.7; }
 .estate-receipt { width:min(780px,100%); min-height:1000px; position:relative; overflow:hidden; margin:auto; padding:36px 42px 26px; background:white; border-radius:5px; box-shadow:0 18px 65px rgba(15,49,87,.14); }
 .estate-header { position:relative; z-index:1; }
 .estate-logo { display:flex; align-items:center; justify-content:center; gap:17px; }
@@ -282,6 +285,9 @@ td { padding:15px 12px; border-bottom:1px solid #edf0ee; color:#4f5d55; }
   .form-grid { grid-template-columns:1fr; }
   .form-grid .wide { grid-column:auto; }
   .estate-receipt-page { padding:18px 10px 45px; }
+  .receipt-toolbar { align-items:flex-start; flex-direction:column; }
+  .receipt-toolbar-actions { width:100%; }
+  .receipt-share-button,.receipt-print-button { flex:1; justify-content:center; min-height:44px; }
   .estate-receipt { min-height:900px; padding:25px 20px 22px; }
   .estate-logo { gap:10px; }
   .estate-logo>span { width:72px; height:67px; }
