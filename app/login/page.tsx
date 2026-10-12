@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", businessName: "", email: "", password: "" });
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -27,7 +27,7 @@ export default function LoginPage() {
       : await supabase.auth.signUp({
           email: form.email,
           password: form.password,
-          options: { data: { full_name: form.name }, emailRedirectTo: `${location.origin}/auth/callback` },
+          options: { data: { full_name: form.name, business_name: form.businessName }, emailRedirectTo: `${location.origin}/auth/callback` },
         });
     setLoading(false);
     if (result.error) return toast.error(result.error.message);
@@ -46,7 +46,7 @@ export default function LoginPage() {
         <div className="brand brand-light"><span className="brand-mark"><Building2 /></span><span>RentLens<small>RENT & TENANT MANAGER</small></span></div>
         <div className="auth-copy">
           <span className="eyebrow light">THE CALM WAY TO COLLECT RENT</span>
-          <h1>Every payment.<br />Every promise.<br /><em>Clearly recorded.</em></h1>
+          <h1>Your rent records.<br />Ready when<br /><em>you are.</em></h1>
           <p>Know who has paid, follow up with care, and send professional receipts without chasing paperwork.</p>
           <div className="auth-benefits">
             <span><CheckCircle2 /> Live tenant balances</span>
@@ -61,10 +61,13 @@ export default function LoginPage() {
         <form className="auth-form" onSubmit={submit}>
           <div className="mobile-brand brand"><span className="brand-mark"><Building2 /></span><span>RentLens<small>RENT & TENANT MANAGER</small></span></div>
           <span className="eyebrow">LANDLORD PORTAL</span>
-          <h2>{mode === "signin" ? "Welcome back" : "Create your account"}</h2>
-          <p>{mode === "signin" ? "Sign in to manage your properties and collections." : "Start managing rent with clarity and confidence."}</p>
+          <h2>{mode === "signin" ? "Welcome back" : "Set up your rent desk"}</h2>
+          <p>{mode === "signin" ? "Continue with today’s collections, promises and receipts." : "Create your workspace. Your first tenant can be added in under a minute."}</p>
           {mode === "signup" && (
-            <label>Full name<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your full name" /></label>
+            <>
+              <label>Full name<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your full name" /></label>
+              <label>Rental business name<input required value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} placeholder="e.g. Elias Estates" /></label>
+            </>
           )}
           <label>Email address<input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" /></label>
           <label>Password
@@ -73,7 +76,7 @@ export default function LoginPage() {
               <button type="button" aria-label="Show password" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff /> : <Eye />}</button>
             </span>
           </label>
-          <button className="primary full" disabled={loading}>{loading ? "Please wait…" : mode === "signin" ? "Sign in securely" : "Create account"}</button>
+          <button className="primary full" disabled={loading}>{loading ? "Please wait…" : mode === "signin" ? "Open my rent desk" : "Create my workspace"}</button>
           <p className="auth-switch">{mode === "signin" ? "New to RentLens?" : "Already have an account?"} <button type="button" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>{mode === "signin" ? "Create account" : "Sign in"}</button></p>
           <button className="demo-link" type="button" onClick={() => router.push("/dashboard?demo=1")}>Preview with sample data →</button>
         </form>

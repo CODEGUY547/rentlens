@@ -1,4 +1,4 @@
-import type { MessageRow, PaymentRow, TenantRow } from "./types";
+import type { ChargeRow, MessageRow, PaymentRow, TenantRow } from "./types";
 
 export const demoTenants: TenantRow[] = [
   {
@@ -30,8 +30,16 @@ export const demoPayments: PaymentRow[] = [
 ];
 
 export const demoMessages: MessageRow[] = [
-  { id: "m1", tenant_name: "Sarah Namusoke", phone: "+256 772 445 180", type: "receipt", body: "Payment received. Your receipt RL-2026-00128 is ready.", status: "read", created_at: "2026-10-04T10:31:00Z" },
-  { id: "m2", tenant_name: "Daniel Okello", phone: "+256 701 982 014", type: "thank_you", body: "Thank you for your payment of UGX 500,000. Balance: UGX 300,000.", status: "delivered", created_at: "2026-10-03T08:14:00Z" },
-  { id: "m3", tenant_name: "Mariam Nakiwala", phone: "+256 755 361 729", type: "reminder", body: "A friendly reminder about your promised payment date on 12 Oct.", status: "sent", created_at: "2026-10-09T06:00:00Z" },
-  { id: "m4", tenant_name: "Joseph Ssemanda", phone: "+256 786 110 663", type: "reminder", body: "Your rent balance is overdue.", status: "failed", created_at: "2026-10-08T06:00:00Z" },
+  { id: "m1", tenant_id: "t1", tenant_name: "Sarah Namusoke", phone: "+256 772 445 180", type: "receipt", body: "Payment received. Your receipt RL-2026-00128 is ready.", status: "read", created_at: "2026-10-04T10:31:00Z" },
+  { id: "m2", tenant_id: "t2", tenant_name: "Daniel Okello", phone: "+256 701 982 014", type: "thank_you", body: "Thank you for your payment of UGX 500,000. Balance: UGX 300,000.", status: "delivered", created_at: "2026-10-03T08:14:00Z" },
+  { id: "m3", tenant_id: "t3", tenant_name: "Mariam Nakiwala", phone: "+256 755 361 729", type: "reminder", body: "A friendly reminder about your promised payment date on 12 Oct.", status: "sent", created_at: "2026-10-09T06:00:00Z" },
+  { id: "m4", tenant_id: "t4", tenant_name: "Joseph Ssemanda", phone: "+256 786 110 663", type: "reminder", body: "Your rent balance is overdue.", status: "failed", created_at: "2026-10-08T06:00:00Z", failure_reason: "Tenant has not opted in to WhatsApp messages" },
+];
+
+export const demoCharges: ChargeRow[] = [
+  { id: "c1", tenant_id: "t1", charge_month: "2026-10-01", due_date: "2026-10-05", description: "October rent", amount: 650000, paid_amount: 650000, status: "paid" },
+  { id: "c2", tenant_id: "t2", charge_month: "2026-10-01", due_date: "2026-10-05", description: "October rent", amount: 800000, paid_amount: 500000, status: "partial" },
+  { id: "c3", tenant_id: "t3", charge_month: "2026-10-01", due_date: "2026-10-05", description: "October rent", amount: 550000, paid_amount: 0, status: "due" },
+  { id: "c4", tenant_id: "t4", charge_month: "2026-09-01", due_date: "2026-09-05", description: "September rent", amount: 700000, paid_amount: 0, status: "due" },
+  { id: "c5", tenant_id: "t4", charge_month: "2026-10-01", due_date: "2026-10-05", description: "October rent", amount: 700000, paid_amount: 0, status: "due" },
 ];

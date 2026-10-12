@@ -112,8 +112,12 @@ create table if not exists public.landlord_settings (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, full_name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'full_name', ''))
+  insert into public.profiles (id, full_name, business_name)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    coalesce(nullif(new.raw_user_meta_data->>'business_name', ''), 'My Rentals')
+  )
   on conflict (id) do nothing;
   insert into public.landlord_settings (landlord_id) values (new.id) on conflict do nothing;
   return new;
