@@ -15,20 +15,23 @@ type RentReceiptProps = {
   businessName?: string;
   businessPhone?: string;
   rentPeriods?: string[];
+  voided?: boolean;
+  balanceLabel?: string;
 };
 
 function money(value: number) {
   return `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(value)}`;
 }
 
-export function RentReceipt({ receiptNumber, paidAt, tenantName, unitName, amount, paymentMethod, reference, balance, secure = false, businessName = "Elias Estates", businessPhone = "0750668419", rentPeriods = [] }: RentReceiptProps) {
+export function RentReceipt({ receiptNumber, paidAt, tenantName, unitName, amount, paymentMethod, reference, balance, secure = false, businessName = "Elias Estates", businessPhone = "0750668419", rentPeriods = [], voided = false, balanceLabel = "Balance After Payment" }: RentReceiptProps) {
   const date = new Date(paidAt);
   const paymentDate = date.toLocaleDateString("en-GB");
   const periodLabel = rentPeriods.length ? rentPeriods.join(", ") : "Rent payment";
 
   return <main className="estate-receipt-page">
-    <div className="receipt-toolbar"><span><CheckCircle2 /> Payment confirmed</span><div className="receipt-toolbar-actions"><ShareReceiptButton receiptNumber={receiptNumber} tenantName={tenantName} /><PrintReceiptButton /></div></div>
-    <section id="rent-receipt-card" className="estate-receipt" aria-label={`Rent receipt ${receiptNumber}`}>
+    <div className={`receipt-toolbar ${voided ? "voided" : ""}`}><span><CheckCircle2 /> {voided ? "Payment reversed — record retained" : "Payment confirmed"}</span><div className="receipt-toolbar-actions">{!voided && <ShareReceiptButton receiptNumber={receiptNumber} tenantName={tenantName} />}<PrintReceiptButton /></div></div>
+    <section id="rent-receipt-card" className={`estate-receipt ${voided ? "voided" : ""}`} aria-label={`Rent receipt ${receiptNumber}`}>
+      {voided && <div className="receipt-void-stamp">REVERSED</div>}
       <header className="estate-header">
         <div className="estate-logo"><span><Building2 /></span><div><h1>{businessName.toUpperCase()}</h1>{businessPhone && <p>Tel: {businessPhone}</p>}</div></div>
         <div className="estate-rule" />
@@ -49,7 +52,7 @@ export function RentReceipt({ receiptNumber, paidAt, tenantName, unitName, amoun
       <div className="receipt-fields receipt-fields-lower">
         <ReceiptField label="Payment Method" value={paymentMethod} />
         {reference && <ReceiptField label="Reference" value={reference} />}
-        <ReceiptField label="Current Balance" value={money(balance)} />
+        <ReceiptField label={balanceLabel} value={money(balance)} />
       </div>
 
       <div className="receipt-thanks"><strong>Thank you</strong><span>for your timely payment!</span></div>

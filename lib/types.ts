@@ -24,6 +24,26 @@ export interface PaymentRow {
   payment_method: string;
   reference: string | null;
   receipt_number: string;
+  balance_after?: number | null;
+  voided_at?: string | null;
+  void_reason?: string | null;
+  tenant_name_snapshot?: string | null;
+  unit_name_snapshot?: string | null;
+  business_name_snapshot?: string | null;
+}
+
+export interface OfflinePaymentDraft {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantPhone: string;
+  amount: number;
+  method: string;
+  reference: string;
+  paidAt: string;
+  savedAt: string;
+  attempts: number;
+  lastError?: string;
 }
 
 export interface MessageRow {

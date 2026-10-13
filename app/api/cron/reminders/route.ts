@@ -11,7 +11,11 @@ export async function GET(request: Request) {
   const admin = createAdmin();
   if (!admin) return NextResponse.json({ error: "Supabase service role is not configured" }, { status: 503 });
   const automaticSending = Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN);
-  await admin.rpc("generate_monthly_charges");
+  const { data: generatedCharges, error: chargeError } = await admin.rpc("generate_monthly_charges");
+  if (chargeError) {
+    console.error("Monthly charge generation failed", chargeError.message);
+    return NextResponse.json({ error: "Monthly charge generation failed" }, { status: 500 });
+  }
   const today = new Date().toISOString().slice(0, 10);
   const horizon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
   const [{ data: charges }, { data: promises }] = await Promise.all([
@@ -52,5 +56,5 @@ export async function GET(request: Request) {
       await admin.from("message_log").update({ status: "failed", failure_reason: cause instanceof Error ? cause.message : "Message failed" }).eq("id", row.id); failed++;
     }
   }
-  return NextResponse.json({ ok: true, mode: automaticSending ? "automatic" : "manual", sent, queued, failed, skipped });
+  return NextResponse.json({ ok: true, generatedCharges: Number(generatedCharges || 0), mode: automaticSending ? "automatic" : "manual", sent, queued, failed, skipped });
 }

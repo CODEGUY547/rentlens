@@ -15,15 +15,19 @@ RentLens is a mobile-friendly landlord dashboard for rent collection, tenant bal
 - Sent, delivered, read and failed message states through Meta webhooks
 - Row Level Security so each landlord only sees their records
 - Responsive desktop and mobile interface
+- Offline payment drafts with automatic reconnect syncing
+- Immutable receipt snapshots and auditable payment reversals
 
 ## 1. Supabase setup
 
 1. Create a new Supabase project for RentLens.
-2. Open **SQL Editor**, paste `supabase/schema.sql`, and run it once.
+2. Open **SQL Editor**, paste `supabase/schema.sql`, and run it once. Then run `supabase/financial_records_upgrade.sql` once.
 3. Open **Project Settings → API**.
 4. Copy the Project URL and Publishable key.
 5. Copy `.env.example` to `.env.local` and add those values.
 6. Keep the Service Role key server-side only. Never put it in a variable beginning with `NEXT_PUBLIC_`.
+
+For an existing RentLens database, run only the upgrade file. It preserves all existing data and adds receipt snapshots, idempotent offline syncing, and payment reversal history.
 
 ## 2. Local setup
 
@@ -62,4 +66,4 @@ The included `vercel.json` runs the reminder job daily at 6:00 UTC (9:00 AM Kamp
 
 ## Receipt integrity
 
-Payments should never be edited after a receipt is issued. A later version should expose a dedicated void-and-reissue workflow using the existing `voided_at` and `void_reason` fields.
+Payments and receipts are permanent records. Corrections use the `reverse_rent_payment` function, which restores charge balances and keeps the original receipt in the audit trail. New receipts preserve the tenant, unit, business name, and balance that were valid when the payment was confirmed.

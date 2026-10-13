@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle, BellRing, Building2, CalendarClock, Check, ChevronRight,
@@ -12,7 +12,8 @@ import { createClient } from "@/lib/supabase/client";
 import { demoCharges, demoMessages, demoPayments, demoTenants } from "@/lib/demo-data";
 import { createReminderMessage, createWhatsAppUrl } from "@/lib/manual-whatsapp";
 import { allocatePayment, currentMonthKey, formatRentPeriod, localDateISO } from "@/lib/product";
-import type { ChargeRow, LandlordProfile, LandlordSettings, MessageRow, PaymentRow, TenantRow, TenantStatus } from "@/lib/types";
+import { addPaymentDraft, readPaymentDrafts, writePaymentDrafts } from "@/lib/offline-payments";
+import type { ChargeRow, LandlordProfile, LandlordSettings, MessageRow, OfflinePaymentDraft, PaymentRow, TenantRow, TenantStatus } from "@/lib/types";
 
 type Tab = "today" | "tenants" | "ledger" | "messages" | "settings";
 type Modal = "tenant" | "payment" | "promise" | "detail" | null;
@@ -56,12 +57,18 @@ export default function Dashboard({ preview }: { preview: boolean }) {
   const [payments, setPayments] = useState<PaymentRow[]>(preview ? demoPayments : []);
   const [messages, setMessages] = useState<MessageRow[]>(preview ? demoMessages : []);
   const [charges, setCharges] = useState<ChargeRow[]>(preview ? demoCharges : []);
+  const [paymentDrafts, setPaymentDrafts] = useState<OfflinePaymentDraft[]>([]);
+  const [syncingDrafts, setSyncingDrafts] = useState(false);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     queueMicrotask(update);
     addEventListener("online", update); addEventListener("offline", update);
     return () => { removeEventListener("online", update); removeEventListener("offline", update); };
+  }, []);
+
+  useEffect(() => {
+    queueMicrotask(() => setPaymentDrafts(readPaymentDrafts()));
   }, []);
 
   useEffect(() => {
@@ -73,7 +80,7 @@ export default function Dashboard({ preview }: { preview: boolean }) {
       if (!auth.user) { router.replace("/login"); return; }
       const [tenantResult, paymentResult, messageResult, chargeResult, profileResult, settingsResult] = await Promise.all([
         supabase.from("tenant_overview").select("*").order("full_name"),
-        supabase.from("payments").select("id,tenant_id,amount,paid_at,payment_method,reference,receipt_number,tenants(full_name,phone)").is("voided_at", null).order("paid_at", { ascending: false }).limit(200),
+        supabase.from("payments").select("id,tenant_id,amount,paid_at,payment_method,reference,receipt_number,voided_at,void_reason,tenants(full_name,phone)").order("paid_at", { ascending: false }).limit(200),
         supabase.from("message_log").select("id,tenant_id,type,body,status,created_at,failure_reason,tenants(full_name,phone)").order("created_at", { ascending: false }).limit(200),
         supabase.from("charges").select("id,tenant_id,charge_month,due_date,description,amount,paid_amount,status").order("due_date"),
         supabase.from("profiles").select("full_name,business_name").single(),
@@ -99,7 +106,7 @@ export default function Dashboard({ preview }: { preview: boolean }) {
 
   const totals = useMemo(() => {
     const month = currentMonthKey(settings.timezone);
-    const monthPayments = payments.filter((payment) => payment.paid_at.slice(0, 7) === month);
+    const monthPayments = payments.filter((payment) => !payment.voided_at && payment.paid_at.slice(0, 7) === month);
     const monthCharges = charges.filter((charge) => charge.charge_month.slice(0, 7) === month);
     return {
       expected: monthCharges.reduce((sum, charge) => sum + charge.amount, 0),
@@ -111,6 +118,41 @@ export default function Dashboard({ preview }: { preview: boolean }) {
   }, [charges, payments, settings.timezone, tenants]);
   const filteredTenants = tenants.filter((tenant) => `${tenant.full_name} ${tenant.unit_name} ${tenant.phone}`.toLowerCase().includes(query.toLowerCase()));
   const pendingMessages = messages.filter((message) => message.status === "queued" || message.status === "failed");
+
+  const syncPaymentDrafts = useCallback(async () => {
+    if (preview || !online || syncingDrafts || !paymentDrafts.length) return;
+    setSyncingDrafts(true);
+    const supabase = createClient();
+    if (!supabase) { setSyncingDrafts(false); return; }
+    const remaining: OfflinePaymentDraft[] = [];
+    let synced = 0;
+    for (const draft of paymentDrafts) {
+      const args = { p_tenant_id: draft.tenantId, p_amount: draft.amount, p_payment_method: draft.method, p_reference: draft.reference || null, p_paid_at: `${draft.paidAt}T12:00:00+03:00`, p_idempotency_key: draft.id };
+      let result = await supabase.rpc("record_rent_payment_v2", args);
+      if (result.error && /function .* does not exist|schema cache/i.test(result.error.message)) {
+        const { p_idempotency_key: _ignored, ...legacyArgs } = args;
+        void _ignored;
+        result = await supabase.rpc("record_rent_payment", legacyArgs);
+      }
+      if (result.error) {
+        remaining.push({ ...draft, attempts: draft.attempts + 1, lastError: result.error.message });
+        continue;
+      }
+      const data = result.data as { id: string; receipt_number: string; balance_after?: number };
+      setPayments((current) => current.some((payment) => payment.id === data.id) ? current : [{ id: data.id, tenant_id: draft.tenantId, tenant_name: draft.tenantName, tenant_phone: draft.tenantPhone, amount: draft.amount, paid_at: `${draft.paidAt}T12:00:00+03:00`, payment_method: draft.method, reference: draft.reference || null, receipt_number: data.receipt_number, balance_after: data.balance_after }, ...current]);
+      setTenants((current) => current.map((tenant) => tenant.id === draft.tenantId ? { ...tenant, balance: data.balance_after ?? Math.max(0, tenant.balance - draft.amount), status: (data.balance_after ?? Math.max(0, tenant.balance - draft.amount)) === 0 ? "paid" : "partial", last_payment_at: `${draft.paidAt}T12:00:00+03:00` } : tenant));
+      synced++;
+    }
+    writePaymentDrafts(remaining);
+    setPaymentDrafts(remaining);
+    setSyncingDrafts(false);
+    if (synced) toast.success(`${synced} offline payment${synced === 1 ? "" : "s"} synced and receipted`);
+    if (remaining.length) toast.error(`${remaining.length} offline payment${remaining.length === 1 ? "" : "s"} still need attention`);
+  }, [online, paymentDrafts, preview, syncingDrafts]);
+
+  useEffect(() => {
+    if (online && paymentDrafts.length && !preview && !syncingDrafts) queueMicrotask(() => void syncPaymentDrafts());
+  }, [online, paymentDrafts.length, preview, syncingDrafts, syncPaymentDrafts]);
 
   async function signOut() { await createClient()?.auth.signOut(); router.push("/login"); }
   function openModal(kind: Modal, tenantId = "") { setSelectedTenant(tenantId || tenants[0]?.id || ""); setModal(kind); }
@@ -127,19 +169,20 @@ export default function Dashboard({ preview }: { preview: boolean }) {
     {mobileNav && <button className="scrim" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
     <section className="workspace">
       <header className="topbar"><button className="icon-button menu-button" onClick={() => setMobileNav(true)} aria-label="Open menu"><Menu /></button><div><span className="eyebrow">{profile.business_name.toUpperCase()}</span><h1>{nav.find((item) => item.id === tab)?.label}</h1></div><div className="top-actions">{preview && <span className="preview-pill">Sample data</span>}<button className="secondary" onClick={() => openModal("promise")}><CalendarClock /> Add promise</button><button className="primary" onClick={() => openModal("payment")}><Plus /> Record payment</button></div></header>
-      {!online && <div className="system-banner"><WifiOff /> You are offline. Payment drafts can be saved on this device and confirmed when you reconnect.</div>}
+      {!online && <div className="system-banner"><WifiOff /> You are offline. Payments will stay safely on this device and sync when you reconnect.</div>}
+      {online && paymentDrafts.length > 0 && <div className="system-banner sync"><Clock3 /> {syncingDrafts ? "Syncing offline payments…" : `${paymentDrafts.length} offline payment${paymentDrafts.length === 1 ? "" : "s"} waiting to sync`}<button onClick={() => void syncPaymentDrafts()} disabled={syncingDrafts}>Sync now</button></div>}
       {error && <div className="system-banner error"><AlertCircle /> Some records could not load: {error}</div>}
       <div className="content">
         {tab === "today" ? <Today totals={totals} tenants={tenants} messages={messages} openModal={openModal} setTab={setTab} /> :
           tab === "tenants" ? <Tenants tenants={filteredTenants} query={query} setQuery={setQuery} openModal={openModal} /> :
-          tab === "ledger" ? <Ledger payments={payments} preview={preview} /> :
+          tab === "ledger" ? <Ledger payments={payments} preview={preview} onReversed={(payment) => { setPayments(payments.map((item) => item.id === payment.id ? { ...item, voided_at: new Date().toISOString(), void_reason: payment.void_reason } : item)); setTenants(tenants.map((tenant) => tenant.id === payment.tenant_id ? { ...tenant, balance: tenant.balance + payment.amount, status: "due" } : tenant)); }} /> :
           tab === "messages" ? <Messages messages={messages} preview={preview} onStatusChange={(id, status) => setMessages(messages.map((message) => message.id === id ? { ...message, status } : message))} /> :
           <SettingsPanel preview={preview} profile={profile} settings={settings} onSaved={(nextProfile, nextSettings) => { setProfile(nextProfile); setSettings(nextSettings); }} />}
       </div>
     </section>
     <nav className="mobile-bottom-nav" aria-label="Main navigation">{nav.slice(0, 4).map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><item.icon size={20} /><span>{item.id === "ledger" ? "Ledger" : item.id === "messages" ? "Outbox" : item.label}</span></button>)}</nav>
     {modal && <ModalShell title={modal === "tenant" ? "Add tenant & unit" : modal === "payment" ? "Confirm a rent payment" : modal === "promise" ? "Record a payment promise" : "Tenant history"} close={() => setModal(null)}>
-      {modal === "tenant" ? <TenantForm preview={preview} onCreated={(tenant) => { setTenants([...tenants, tenant]); setModal(null); }} /> : modal === "payment" ? <PaymentForm tenants={tenants} charges={charges} payments={payments} selected={selectedTenant} preview={preview} online={online} onPaid={(payment, tenantId, balance) => { setPayments([payment, ...payments]); setTenants(tenants.map((tenant) => tenant.id === tenantId ? { ...tenant, balance, status: balance === 0 ? "paid" : "partial", last_payment_at: payment.paid_at } : tenant)); setModal(null); setTab("ledger"); }} /> : modal === "promise" ? <PromiseForm tenants={tenants} selected={selectedTenant} preview={preview} onSaved={(tenantId, date) => { setTenants(tenants.map((tenant) => tenant.id === tenantId ? { ...tenant, promise_date: date, status: "promised" } : tenant)); setModal(null); }} /> : <TenantDetail tenant={tenants.find((tenant) => tenant.id === selectedTenant)} payments={payments} charges={charges} messages={messages} preview={preview} onPayment={() => openModal("payment", selectedTenant)} />}
+      {modal === "tenant" ? <TenantForm preview={preview} onCreated={(tenant) => { setTenants([...tenants, tenant]); setModal(null); }} /> : modal === "payment" ? <PaymentForm tenants={tenants} charges={charges} payments={payments} selected={selectedTenant} preview={preview} online={online} onDrafted={(drafts) => { setPaymentDrafts(drafts); setModal(null); }} onPaid={(payment, tenantId, balance) => { setPayments([payment, ...payments]); setTenants(tenants.map((tenant) => tenant.id === tenantId ? { ...tenant, balance, status: balance === 0 ? "paid" : "partial", last_payment_at: payment.paid_at } : tenant)); setModal(null); setTab("ledger"); }} /> : modal === "promise" ? <PromiseForm tenants={tenants} selected={selectedTenant} preview={preview} onSaved={(tenantId, date) => { setTenants(tenants.map((tenant) => tenant.id === tenantId ? { ...tenant, promise_date: date, status: "promised" } : tenant)); setModal(null); }} /> : <TenantDetail tenant={tenants.find((tenant) => tenant.id === selectedTenant)} payments={payments} charges={charges} messages={messages} preview={preview} onPayment={() => openModal("payment", selectedTenant)} />}
     </ModalShell>}
   </main>;
 }
@@ -167,10 +210,33 @@ function Tenants({ tenants, query, setQuery, openModal }: { tenants: TenantRow[]
   </section>;
 }
 
-function Ledger({ payments, preview }: { payments: PaymentRow[]; preview: boolean }) {
-  function exportCsv() { const rows = [["Receipt", "Tenant", "Date", "Method", "Reference", "Amount"], ...payments.map((p) => [p.receipt_number, p.tenant_name, p.paid_at, p.payment_method, p.reference || "", String(p.amount)])]; const blob = new Blob([rows.map((r) => r.map((v) => `"${v.replaceAll('"', '""')}"`).join(",")).join("\n")], { type: "text/csv" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `rentlens-ledger-${localDateISO()}.csv`; link.click(); URL.revokeObjectURL(link.href); }
-  const total = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  return <section className="panel page-panel records-page"><div className="panel-head"><div><h2>Rent ledger</h2><p>A permanent trail of confirmed payments and receipts.</p></div><button className="secondary" onClick={exportCsv}><Download /> Export CSV</button></div><div className="ledger-summary"><span><small>Recorded payments</small><strong>{payments.length}</strong></span><span><small>Total recorded</small><strong>{money(total)}</strong></span></div><div className="desktop-records responsive-table"><table><thead><tr><th>Receipt</th><th>Tenant</th><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead><tbody>{payments.map((payment) => <tr key={payment.id}><td><strong>{payment.receipt_number}</strong></td><td>{payment.tenant_name}</td><td>{niceDate(payment.paid_at)}</td><td>{payment.payment_method}</td><td>{payment.reference || "—"}</td><td><strong>{money(payment.amount)}</strong></td><td><a className="small-action" href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">Receipt</a></td></tr>)}</tbody></table></div><div className="mobile-records">{payments.map((payment) => <article className="record-card payment-card" key={payment.id}><div><span className="receipt-code">{payment.receipt_number}</span><strong>{payment.tenant_name}</strong><small>{niceDate(payment.paid_at)} · {payment.payment_method}</small></div><div><strong>{money(payment.amount)}</strong><a href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">Open receipt</a></div></article>)}</div></section>;
+function Ledger({ payments, preview, onReversed }: { payments: PaymentRow[]; preview: boolean; onReversed: (payment: PaymentRow) => void }) {
+  function exportCsv() { const rows = [["Receipt", "Tenant", "Date", "Method", "Reference", "Amount", "Status", "Reversal reason"], ...payments.map((p) => [p.receipt_number, p.tenant_name, p.paid_at, p.payment_method, p.reference || "", String(p.amount), p.voided_at ? "Reversed" : "Confirmed", p.void_reason || ""])]; const blob = new Blob([rows.map((r) => r.map((v) => `"${v.replaceAll('"', '""')}"`).join(",")).join("\n")], { type: "text/csv" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `rentlens-ledger-${localDateISO()}.csv`; link.click(); URL.revokeObjectURL(link.href); }
+  const activePayments = payments.filter((payment) => !payment.voided_at);
+  const total = activePayments.reduce((sum, payment) => sum + payment.amount, 0);
+  return <section className="panel page-panel records-page"><div className="panel-head"><div><h2>Receipts & rent ledger</h2><p>Every payment stays recorded. Corrections are reversed, never deleted.</p></div><button className="secondary" onClick={exportCsv}><Download /> Export CSV</button></div><div className="ledger-summary"><span><small>Active payments</small><strong>{activePayments.length}</strong></span><span><small>Total received</small><strong>{money(total)}</strong></span><span><small>Reversed records</small><strong>{payments.length - activePayments.length}</strong></span></div><div className="desktop-records responsive-table"><table><thead><tr><th>Receipt</th><th>Tenant</th><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead><tbody>{payments.map((payment) => <tr key={payment.id} className={payment.voided_at ? "voided-row" : ""}><td><strong>{payment.receipt_number}</strong>{payment.voided_at && <small className="cell-note danger">Reversed</small>}</td><td>{payment.tenant_name}</td><td>{niceDate(payment.paid_at)}</td><td>{payment.payment_method}</td><td>{payment.reference || "—"}</td><td><strong>{money(payment.amount)}</strong></td><td><div className="row-actions"><a className="small-action" href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">Receipt</a>{!payment.voided_at && <ReversePaymentButton payment={payment} preview={preview} onReversed={onReversed} />}</div></td></tr>)}</tbody></table></div><div className="mobile-records">{payments.map((payment) => <article className={`record-card payment-card ${payment.voided_at ? "voided-row" : ""}`} key={payment.id}><div><span className="receipt-code">{payment.receipt_number}</span><strong>{payment.tenant_name}</strong><small>{niceDate(payment.paid_at)} · {payment.payment_method}</small>{payment.voided_at && <small className="danger">Reversed · {payment.void_reason}</small>}</div><div><strong>{money(payment.amount)}</strong><a href={`/receipt/${payment.id}${preview ? "?demo=1" : ""}`} target="_blank" rel="noreferrer">Open receipt</a>{!payment.voided_at && <ReversePaymentButton payment={payment} preview={preview} onReversed={onReversed} />}</div></article>)}</div></section>;
+}
+
+function ReversePaymentButton({ payment, preview, onReversed }: { payment: PaymentRow; preview: boolean; onReversed: (payment: PaymentRow) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function reverse() {
+    if (reason.trim().length < 3) return toast.error("Enter a short reason for the correction");
+    setSaving(true);
+    if (!preview) {
+      const { error } = await createClient()!.rpc("reverse_rent_payment", { p_payment_id: payment.id, p_reason: reason.trim() });
+      if (error) {
+        setSaving(false);
+        toast.error(/function .* does not exist|schema cache/i.test(error.message) ? "Run the RentLens financial records upgrade in Supabase first." : error.message);
+        return;
+      }
+    }
+    onReversed({ ...payment, void_reason: reason.trim() });
+    toast.success("Payment reversed. The receipt remains in the audit trail.");
+  }
+  if (!editing) return <button className="small-action danger-action" onClick={() => setEditing(true)}>Reverse</button>;
+  return <span className="reverse-inline"><input aria-label={`Reason for reversing ${payment.receipt_number}`} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason" /><button className="small-action danger-action" onClick={() => void reverse()} disabled={saving}>{saving ? "Saving…" : "Confirm"}</button><button className="small-action" onClick={() => setEditing(false)}>Cancel</button></span>;
 }
 
 function Messages({ messages, preview, onStatusChange }: { messages: MessageRow[]; preview: boolean; onStatusChange: (id: string, status: MessageRow["status"]) => void }) {
@@ -187,7 +253,7 @@ function Messages({ messages, preview, onStatusChange }: { messages: MessageRow[
 function SettingsPanel({ preview, profile, settings, onSaved }: { preview: boolean; profile: LandlordProfile; settings: LandlordSettings; onSaved: (profile: LandlordProfile, settings: LandlordSettings) => void }) {
   const [nextProfile, setNextProfile] = useState(profile); const [nextSettings, setNextSettings] = useState(settings); const [saving, setSaving] = useState(false);
   async function save(event: React.FormEvent) { event.preventDefault(); setSaving(true); if (!preview) { const supabase = createClient()!; const [a, b] = await Promise.all([supabase.from("profiles").update(nextProfile).eq("id", (await supabase.auth.getUser()).data.user!.id), supabase.from("landlord_settings").update(nextSettings).eq("landlord_id", (await supabase.auth.getUser()).data.user!.id)]); if (a.error || b.error) { setSaving(false); return toast.error(a.error?.message || b.error?.message); } } onSaved(nextProfile, nextSettings); toast.success("Settings saved"); setSaving(false); }
-  return <div className="settings-grid"><form className="panel page-panel settings-form" onSubmit={save}><div className="panel-head"><div><h2>Business & reminders</h2><p>These values now drive the workspace and receipt identity.</p></div></div><div className="form-grid"><label>Business name<input value={nextProfile.business_name} onChange={(event) => setNextProfile({ ...nextProfile, business_name: event.target.value })} /></label><label>Your name<input value={nextProfile.full_name} onChange={(event) => setNextProfile({ ...nextProfile, full_name: event.target.value })} /></label><label>Reminder days before<input type="number" min="0" max="30" value={nextSettings.remind_days_before} onChange={(event) => setNextSettings({ ...nextSettings, remind_days_before: Number(event.target.value) })} /></label><label>Overdue repeat days<input type="number" min="1" max="30" value={nextSettings.overdue_repeat_days} onChange={(event) => setNextSettings({ ...nextSettings, overdue_repeat_days: Number(event.target.value) })} /></label></div><label className="consent-check"><input type="checkbox" checked={nextSettings.holiday_messages_enabled} onChange={(event) => setNextSettings({ ...nextSettings, holiday_messages_enabled: event.target.checked })} /><span><strong>Prepare holiday greetings</strong><small>Only for tenants who opted into WhatsApp messages.</small></span></label><button className="primary" disabled={saving}>{saving ? "Saving…" : "Save settings"}</button></form><aside className="settings-side"><div className="panel system-card"><h3>System status</h3><div className="system-row"><span>Database</span><strong className="good">Connected</strong></div><div className="system-row"><span>Receipts</span><strong className="good">Ready</strong></div><div className="system-row"><span>WhatsApp</span><strong>Manual send</strong></div><p>Automatic sending requires an approved WhatsApp Business provider. The current flow never claims a message was delivered until you confirm it.</p></div><div className="panel expectation-card"><Clock3 /><div><strong>What happens automatically?</strong><p>Balances, allocations, numbered receipts and the outbox update after a confirmed payment.</p></div></div></aside></div>;
+  return <div className="settings-grid"><form className="panel page-panel settings-form" onSubmit={save}><div className="panel-head"><div><h2>Business & reminders</h2><p>These values now drive the workspace and receipt identity.</p></div></div><div className="form-grid"><label>Business name<input value={nextProfile.business_name} onChange={(event) => setNextProfile({ ...nextProfile, business_name: event.target.value })} /></label><label>Your name<input value={nextProfile.full_name} onChange={(event) => setNextProfile({ ...nextProfile, full_name: event.target.value })} /></label><label>Reminder days before<input type="number" min="0" max="30" value={nextSettings.remind_days_before} onChange={(event) => setNextSettings({ ...nextSettings, remind_days_before: Number(event.target.value) })} /></label><label>Overdue repeat days<input type="number" min="1" max="30" value={nextSettings.overdue_repeat_days} onChange={(event) => setNextSettings({ ...nextSettings, overdue_repeat_days: Number(event.target.value) })} /></label></div><label className="consent-check"><input type="checkbox" checked={nextSettings.holiday_messages_enabled} onChange={(event) => setNextSettings({ ...nextSettings, holiday_messages_enabled: event.target.checked })} /><span><strong>Prepare holiday greetings</strong><small>Only for tenants who opted into WhatsApp messages.</small></span></label><button className="primary" disabled={saving}>{saving ? "Saving…" : "Save settings"}</button></form><aside className="settings-side"><div className="panel system-card"><h3>System status</h3><div className="system-row"><span>Database</span><strong className="good">Connected</strong></div><div className="system-row"><span>Monthly charges</span><strong className="good">Automatic</strong></div><div className="system-row"><span>Offline payments</span><strong className="good">Auto-sync</strong></div><div className="system-row"><span>Receipts & records</span><strong className="good">Retained</strong></div><div className="system-row"><span>WhatsApp</span><strong>Manual send</strong></div><p>Automatic WhatsApp sending still requires an approved WhatsApp Business provider. Financial records remain available even when a payment is reversed.</p></div><div className="panel expectation-card"><Clock3 /><div><strong>What happens automatically?</strong><p>Monthly charges are generated daily if missing. Offline payments sync after reconnection, then balances, receipt snapshots and the outbox update.</p></div></div></aside></div>;
 }
 
 function ModalShell({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
@@ -202,10 +268,43 @@ function TenantForm({ preview, onCreated }: { preview: boolean; onCreated: (tena
   return <form className="modal-form" onSubmit={submit}><div className="form-grid"><label className="wide">Tenant full name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Amina Nansubuga" /></label><label>WhatsApp number<input required value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label><label>Property<input required value={form.property} onChange={(event) => setForm({ ...form, property: event.target.value })} placeholder="e.g. Kisaasi Apartments" /></label><label>Unit / room<input required value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} placeholder="e.g. A03" /></label><label>Monthly rent (UGX)<input required type="number" min="1" value={form.rent} onChange={(event) => setForm({ ...form, rent: event.target.value })} /></label><label>Rent due day<input required type="number" min="1" max="28" value={form.dueDay} onChange={(event) => setForm({ ...form, dueDay: event.target.value })} /><small className="field-help">The calendar day rent is expected each month.</small></label></div><label className="consent-check"><input type="checkbox" checked={form.consent} onChange={(event) => setForm({ ...form, consent: event.target.checked })} /><span><strong>Tenant agreed to WhatsApp messages</strong><small>Keep consent records before sending reminders or receipts.</small></span></label><button className="primary full" disabled={saving}>{saving ? "Saving…" : "Add tenant & unit"}</button></form>;
 }
 
-function PaymentForm({ tenants, charges, payments, selected, preview, online, onPaid }: { tenants: TenantRow[]; charges: ChargeRow[]; payments: PaymentRow[]; selected: string; preview: boolean; online: boolean; onPaid: (payment: PaymentRow, tenantId: string, balance: number) => void }) {
+function PaymentForm({ tenants, charges, payments, selected, preview, online, onDrafted, onPaid }: { tenants: TenantRow[]; charges: ChargeRow[]; payments: PaymentRow[]; selected: string; preview: boolean; online: boolean; onDrafted: (drafts: OfflinePaymentDraft[]) => void; onPaid: (payment: PaymentRow, tenantId: string, balance: number) => void }) {
   const [saving, setSaving] = useState(false); const [form, setForm] = useState({ tenantId: selected || tenants[0]?.id || "", amount: "", method: "Mobile Money", reference: "", paidAt: localDateISO() });
   const tenant = tenants.find((item) => item.id === form.tenantId); const amount = Number(form.amount || 0); const allocations = allocatePayment(charges.filter((charge) => charge.tenant_id === form.tenantId), amount); const unallocated = Math.max(0, amount - allocations.reduce((sum, item) => sum + item.allocated, 0)); const duplicate = payments.some((payment) => payment.tenant_id === form.tenantId && payment.amount === amount && payment.paid_at.slice(0, 10) === form.paidAt);
-  async function submit(event: React.FormEvent) { event.preventDefault(); if (!tenant || amount <= 0) return; if (amount > tenant.balance) return toast.error("This is more than the outstanding balance. Record only the amount being allocated."); if (duplicate && !confirm("A payment with the same tenant, amount and date already exists. Record it again?")) return; if (!online && !preview) { const drafts = JSON.parse(localStorage.getItem("rentlens-payment-drafts") || "[]"); localStorage.setItem("rentlens-payment-drafts", JSON.stringify([...drafts, { ...form, savedAt: new Date().toISOString() }])); toast.success("Payment draft saved on this device. Reconnect to confirm it."); return; } setSaving(true); let id = crypto.randomUUID(); let receipt = `RL-DEMO-${id.slice(0, 8).toUpperCase()}`; if (!preview) { const { data, error } = await createClient()!.rpc("record_rent_payment", { p_tenant_id: form.tenantId, p_amount: amount, p_payment_method: form.method, p_reference: form.reference || null, p_paid_at: `${form.paidAt}T12:00:00+03:00` }); if (error) { setSaving(false); return toast.error(error.message); } id = data.id; receipt = data.receipt_number; } const payment: PaymentRow = { id, tenant_id: tenant.id, tenant_name: tenant.full_name, tenant_phone: tenant.phone, amount, paid_at: `${form.paidAt}T12:00:00+03:00`, payment_method: form.method, reference: form.reference || null, receipt_number: receipt }; onPaid(payment, tenant.id, Math.max(0, tenant.balance - amount)); toast.success("Payment confirmed and receipt created"); }
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!tenant || amount <= 0) return;
+    if (amount > tenant.balance) return toast.error("This is more than the outstanding balance. Record only the amount being allocated.");
+    if (duplicate && !confirm("A payment with the same tenant, amount and date already exists. Record it again?")) return;
+    const idempotencyKey = crypto.randomUUID();
+    if (!online && !preview) {
+      const draft: OfflinePaymentDraft = { id: idempotencyKey, tenantId: tenant.id, tenantName: tenant.full_name, tenantPhone: tenant.phone, amount, method: form.method, reference: form.reference, paidAt: form.paidAt, savedAt: new Date().toISOString(), attempts: 0 };
+      onDrafted(addPaymentDraft(draft));
+      toast.success("Payment saved offline. It will sync automatically when you reconnect.");
+      return;
+    }
+    setSaving(true);
+    let id = crypto.randomUUID();
+    let receipt = `RL-DEMO-${id.slice(0, 8).toUpperCase()}`;
+    let balanceAfter = Math.max(0, tenant.balance - amount);
+    if (!preview) {
+      const supabase = createClient()!;
+      const args = { p_tenant_id: form.tenantId, p_amount: amount, p_payment_method: form.method, p_reference: form.reference || null, p_paid_at: `${form.paidAt}T12:00:00+03:00`, p_idempotency_key: idempotencyKey };
+      let result = await supabase.rpc("record_rent_payment_v2", args);
+      if (result.error && /function .* does not exist|schema cache/i.test(result.error.message)) {
+        const { p_idempotency_key: _ignored, ...legacyArgs } = args;
+        void _ignored;
+        result = await supabase.rpc("record_rent_payment", legacyArgs);
+      }
+      if (result.error) { setSaving(false); toast.error(result.error.message); return; }
+      id = result.data.id;
+      receipt = result.data.receipt_number;
+      balanceAfter = Number(result.data.balance_after ?? balanceAfter);
+    }
+    const payment: PaymentRow = { id, tenant_id: tenant.id, tenant_name: tenant.full_name, tenant_phone: tenant.phone, amount, paid_at: `${form.paidAt}T12:00:00+03:00`, payment_method: form.method, reference: form.reference || null, receipt_number: receipt, balance_after: balanceAfter };
+    onPaid(payment, tenant.id, balanceAfter);
+    toast.success("Payment confirmed and permanent receipt created");
+  }
   return <form className="modal-form" onSubmit={submit}><label>Tenant<select value={form.tenantId} onChange={(event) => setForm({ ...form, tenantId: event.target.value, amount: "" })}>{tenants.map((item) => <option key={item.id} value={item.id}>{item.full_name} — {item.unit_name}</option>)}</select></label>{tenant && <div className="balance-callout"><span>Outstanding balance</span><strong>{money(tenant.balance)}</strong></div>}<div className="form-grid"><label>Amount received (UGX)<input autoFocus required type="number" min="1" max={tenant?.balance || undefined} value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} /></label><label>Payment date<input required type="date" value={form.paidAt} onChange={(event) => setForm({ ...form, paidAt: event.target.value })} /></label><label>Payment method<select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}><option>Mobile Money</option><option>Bank transfer</option><option>Cash</option><option>Cheque</option></select></label><label>Transaction reference<input value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} placeholder="Optional but recommended" /></label></div>{tenant && <div className="amount-shortcuts"><button type="button" onClick={() => setForm({ ...form, amount: String(Math.min(tenant.monthly_rent, tenant.balance)) })}>This month</button><button type="button" onClick={() => setForm({ ...form, amount: String(tenant.balance) })}>Full balance</button></div>}{amount > 0 && <div className="allocation-preview"><strong>How this payment will be used</strong>{allocations.map((item) => <span key={item.id}><i>{formatRentPeriod(item.charge_month)}</i><b>{money(item.allocated)}</b></span>)}{unallocated > 0 && <span className="inline-error"><i>Unallocated</i><b>{money(unallocated)}</b></span>}<span><i>Balance after payment</i><b>{money(Math.max(0, (tenant?.balance || 0) - amount))}</b></span></div>}{duplicate && <p className="inline-error">Possible duplicate: the same amount is already recorded for this tenant on this date.</p>}<button className="primary full" disabled={saving}>{saving ? "Confirming…" : online || preview ? "Confirm payment & create receipt" : "Save offline draft"}</button></form>;
 }
 
@@ -250,7 +349,7 @@ function PromiseForm({ tenants, selected, preview, onSaved }: { tenants: TenantR
   </form>;
 }
 
-function TenantDetail({ tenant, payments, charges, messages, preview, onPayment }: { tenant?: TenantRow; payments: PaymentRow[]; charges: ChargeRow[]; messages: MessageRow[]; preview: boolean; onPayment: () => void }) { if (!tenant) return <Empty icon={<Users />} title="Tenant not found" text="Close this window and choose a tenant again." />; const events = [...payments.filter((p) => p.tenant_id === tenant.id).map((p) => ({ date: p.paid_at, title: `${money(p.amount)} payment`, detail: p.receipt_number, href: `/receipt/${p.id}${preview ? "?demo=1" : ""}` })), ...charges.filter((c) => c.tenant_id === tenant.id).map((c) => ({ date: c.due_date, title: `${formatRentPeriod(c.charge_month)} rent`, detail: `${money(c.paid_amount)} of ${money(c.amount)} paid`, href: "" })), ...messages.filter((m) => m.tenant_id === tenant.id).map((m) => ({ date: m.created_at, title: `${m.type.replace("_", " ")} message`, detail: m.status, href: "" }))].sort((a, b) => b.date.localeCompare(a.date)); return <div className="tenant-detail"><div className="tenant-balance"><span className="avatar">{initials(tenant.full_name)}</span><div><h3>{tenant.full_name}</h3><p>{tenant.unit_name} · {tenant.phone}</p></div><strong>{money(tenant.balance)}<small>outstanding</small></strong></div><div className="tenant-facts"><span><small>Monthly rent</small><strong>{money(tenant.monthly_rent)}</strong></span><span><small>Due day</small><strong>Day {tenant.due_day}</strong></span><span><small>Last payment</small><strong>{niceDate(tenant.last_payment_at)}</strong></span></div><button className="primary full" onClick={onPayment}><Plus /> Record payment</button><h3 className="timeline-title">Account history</h3><div className="ledger-timeline">{events.map((event, index) => <article key={`${event.date}-${index}`}><i /><div><strong>{event.title}</strong><small>{niceDate(event.date)} · {event.detail}</small></div>{event.href && <a href={event.href} target="_blank" rel="noreferrer">Receipt</a>}</article>)}{!events.length && <Empty icon={<Clock3 />} title="No history yet" text="Charges, payments and messages will appear here." />}</div></div>; }
+function TenantDetail({ tenant, payments, charges, messages, preview, onPayment }: { tenant?: TenantRow; payments: PaymentRow[]; charges: ChargeRow[]; messages: MessageRow[]; preview: boolean; onPayment: () => void }) { if (!tenant) return <Empty icon={<Users />} title="Tenant not found" text="Close this window and choose a tenant again." />; const events = [...payments.filter((p) => p.tenant_id === tenant.id).map((p) => ({ date: p.paid_at, title: `${money(p.amount)} payment${p.voided_at ? " (reversed)" : ""}`, detail: `${p.receipt_number}${p.void_reason ? ` · ${p.void_reason}` : ""}`, href: `/receipt/${p.id}${preview ? "?demo=1" : ""}` })), ...charges.filter((c) => c.tenant_id === tenant.id).map((c) => ({ date: c.due_date, title: `${formatRentPeriod(c.charge_month)} rent`, detail: `${money(c.paid_amount)} of ${money(c.amount)} paid`, href: "" })), ...messages.filter((m) => m.tenant_id === tenant.id).map((m) => ({ date: m.created_at, title: `${m.type.replace("_", " ")} message`, detail: m.status, href: "" }))].sort((a, b) => b.date.localeCompare(a.date)); return <div className="tenant-detail"><div className="tenant-balance"><span className="avatar">{initials(tenant.full_name)}</span><div><h3>{tenant.full_name}</h3><p>{tenant.unit_name} · {tenant.phone}</p></div><strong>{money(tenant.balance)}<small>outstanding</small></strong></div><div className="tenant-facts"><span><small>Monthly rent</small><strong>{money(tenant.monthly_rent)}</strong></span><span><small>Due day</small><strong>Day {tenant.due_day}</strong></span><span><small>Last payment</small><strong>{niceDate(tenant.last_payment_at)}</strong></span></div><button className="primary full" onClick={onPayment}><Plus /> Record payment</button><h3 className="timeline-title">Receipts & account history</h3><div className="ledger-timeline">{events.map((event, index) => <article key={`${event.date}-${index}`}><i /><div><strong>{event.title}</strong><small>{niceDate(event.date)} · {event.detail}</small></div>{event.href && <a href={event.href} target="_blank" rel="noreferrer">Receipt</a>}</article>)}{!events.length && <Empty icon={<Clock3 />} title="No history yet" text="Charges, payments and messages will appear here." />}</div></div>; }
 
 function Empty({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="empty"><i>{icon}</i><strong>{title}</strong><p>{text}</p></div>; }
 function LoadingState() { return <main className="loading-layout" aria-label="Loading RentLens"><aside /><section><div className="loading-hero" /><div className="loading-grid">{[1, 2, 3, 4].map((item) => <i key={item} />)}</div><div className="loading-panel" /></section></main>; }
