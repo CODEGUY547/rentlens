@@ -209,7 +209,46 @@ function PaymentForm({ tenants, charges, payments, selected, preview, online, on
   return <form className="modal-form" onSubmit={submit}><label>Tenant<select value={form.tenantId} onChange={(event) => setForm({ ...form, tenantId: event.target.value, amount: "" })}>{tenants.map((item) => <option key={item.id} value={item.id}>{item.full_name} — {item.unit_name}</option>)}</select></label>{tenant && <div className="balance-callout"><span>Outstanding balance</span><strong>{money(tenant.balance)}</strong></div>}<div className="form-grid"><label>Amount received (UGX)<input autoFocus required type="number" min="1" max={tenant?.balance || undefined} value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} /></label><label>Payment date<input required type="date" value={form.paidAt} onChange={(event) => setForm({ ...form, paidAt: event.target.value })} /></label><label>Payment method<select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}><option>Mobile Money</option><option>Bank transfer</option><option>Cash</option><option>Cheque</option></select></label><label>Transaction reference<input value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} placeholder="Optional but recommended" /></label></div>{tenant && <div className="amount-shortcuts"><button type="button" onClick={() => setForm({ ...form, amount: String(Math.min(tenant.monthly_rent, tenant.balance)) })}>This month</button><button type="button" onClick={() => setForm({ ...form, amount: String(tenant.balance) })}>Full balance</button></div>}{amount > 0 && <div className="allocation-preview"><strong>How this payment will be used</strong>{allocations.map((item) => <span key={item.id}><i>{formatRentPeriod(item.charge_month)}</i><b>{money(item.allocated)}</b></span>)}{unallocated > 0 && <span className="inline-error"><i>Unallocated</i><b>{money(unallocated)}</b></span>}<span><i>Balance after payment</i><b>{money(Math.max(0, (tenant?.balance || 0) - amount))}</b></span></div>}{duplicate && <p className="inline-error">Possible duplicate: the same amount is already recorded for this tenant on this date.</p>}<button className="primary full" disabled={saving}>{saving ? "Confirming…" : online || preview ? "Confirm payment & create receipt" : "Save offline draft"}</button></form>;
 }
 
-function PromiseForm({ tenants, selected, preview, onSaved }: { tenants: TenantRow[]; selected: string; preview: boolean; onSaved: (tenantId: string, date: string) => void }) { const [saving, setSaving] = useState(false); const [tenantId, setTenantId] = useState(selected || tenants[0]?.id || ""); const [date, setDate] = useState(""); const [note, setNote] = useState(""); async function submit(event: React.FormEvent) { event.preventDefault(); setSaving(true); if (!preview) { const { error } = await createClient()!.from("payment_promises").insert({ tenant_id: tenantId, promised_date: date, note }); if (error) { setSaving(false); return toast.error(error.message); } } onSaved(tenantId, date); toast.success("Promise saved and added to the attention list"); } return <form className="modal-form" onSubmit={submit}><label>Tenant<select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>{tenants.map((item) => <option key={item.id} value={item.id}>{item.full_name} — {money(item.balance)} due</option>)}</select></label><label>Promised payment date<input required type="date" min={localDateISO()} value={date} onChange={(event) => setDate(event.target.value)} /></label><label>What did the tenant say?<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional note" /></label><button className="primary full" disabled={saving}>{saving ? "Saving…" : "Save promise"}</button></form>; }
+function PromiseForm({ tenants, selected, preview, onSaved }: { tenants: TenantRow[]; selected: string; preview: boolean; onSaved: (tenantId: string, date: string) => void }) {
+  const [saving, setSaving] = useState(false);
+  const [tenantId, setTenantId] = useState(selected || tenants[0]?.id || "");
+  const [date, setDate] = useState("");
+  const [note, setNote] = useState("");
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    if (!preview) {
+      const supabase = createClient()!;
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth.user) {
+        setSaving(false);
+        toast.error("Your session has expired. Please sign in again.");
+        return;
+      }
+      const { error } = await supabase.from("payment_promises").insert({
+        landlord_id: auth.user.id,
+        tenant_id: tenantId,
+        promised_date: date,
+        note: note.trim() || null,
+      });
+      if (error) {
+        setSaving(false);
+        toast.error(error.message);
+        return;
+      }
+    }
+    onSaved(tenantId, date);
+    toast.success("Promise saved and added to the attention list");
+  }
+
+  return <form className="modal-form" onSubmit={submit}>
+    <label>Tenant<select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>{tenants.map((item) => <option key={item.id} value={item.id}>{item.full_name} — {money(item.balance)} due</option>)}</select></label>
+    <label>Promised payment date<input required type="date" min={localDateISO()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+    <label>What did the tenant say?<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional note" /></label>
+    <button className="primary full" disabled={saving}>{saving ? "Saving…" : "Save promise"}</button>
+  </form>;
+}
 
 function TenantDetail({ tenant, payments, charges, messages, preview, onPayment }: { tenant?: TenantRow; payments: PaymentRow[]; charges: ChargeRow[]; messages: MessageRow[]; preview: boolean; onPayment: () => void }) { if (!tenant) return <Empty icon={<Users />} title="Tenant not found" text="Close this window and choose a tenant again." />; const events = [...payments.filter((p) => p.tenant_id === tenant.id).map((p) => ({ date: p.paid_at, title: `${money(p.amount)} payment`, detail: p.receipt_number, href: `/receipt/${p.id}${preview ? "?demo=1" : ""}` })), ...charges.filter((c) => c.tenant_id === tenant.id).map((c) => ({ date: c.due_date, title: `${formatRentPeriod(c.charge_month)} rent`, detail: `${money(c.paid_amount)} of ${money(c.amount)} paid`, href: "" })), ...messages.filter((m) => m.tenant_id === tenant.id).map((m) => ({ date: m.created_at, title: `${m.type.replace("_", " ")} message`, detail: m.status, href: "" }))].sort((a, b) => b.date.localeCompare(a.date)); return <div className="tenant-detail"><div className="tenant-balance"><span className="avatar">{initials(tenant.full_name)}</span><div><h3>{tenant.full_name}</h3><p>{tenant.unit_name} · {tenant.phone}</p></div><strong>{money(tenant.balance)}<small>outstanding</small></strong></div><div className="tenant-facts"><span><small>Monthly rent</small><strong>{money(tenant.monthly_rent)}</strong></span><span><small>Due day</small><strong>Day {tenant.due_day}</strong></span><span><small>Last payment</small><strong>{niceDate(tenant.last_payment_at)}</strong></span></div><button className="primary full" onClick={onPayment}><Plus /> Record payment</button><h3 className="timeline-title">Account history</h3><div className="ledger-timeline">{events.map((event, index) => <article key={`${event.date}-${index}`}><i /><div><strong>{event.title}</strong><small>{niceDate(event.date)} · {event.detail}</small></div>{event.href && <a href={event.href} target="_blank" rel="noreferrer">Receipt</a>}</article>)}{!events.length && <Empty icon={<Clock3 />} title="No history yet" text="Charges, payments and messages will appear here." />}</div></div>; }
 
