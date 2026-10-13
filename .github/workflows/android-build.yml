@@ -24,8 +24,6 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
-      - name: Prepare Android SDK
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0" > /dev/null
       - name: Build debug APK
         run: |
           chmod +x gradlew
