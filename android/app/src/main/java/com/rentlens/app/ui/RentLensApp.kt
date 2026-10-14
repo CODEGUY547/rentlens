@@ -29,13 +29,13 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.WhatsApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -248,7 +248,7 @@ private fun PaymentDialog(tenants: List<Tenant>, initial: Tenant, onDismiss: () 
 @Composable
 private fun TenantDialog(tenant: Tenant, onDismiss: () -> Unit, onPayment: () -> Unit) {
     val context = LocalContext.current
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(tenant.fullName) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(tenant.unitName); Text("Monthly rent: ${money(tenant.monthlyRent)}"); Text("Outstanding: ${money(tenant.balance)}", fontWeight = FontWeight.Bold); Text("Due every month on day ${tenant.dueDay}"); Text("Phone: ${tenant.phone}") } }, confirmButton = { Button(onClick = onPayment) { Text("Record payment") } }, dismissButton = { Row { IconButton(onClick = { openWhatsApp(context, tenant.phone, "Hello ${tenant.fullName}, this is a reminder from RentLens regarding your rent balance of ${money(tenant.balance)}.") }) { Icon(Icons.Default.WhatsApp, "WhatsApp") }; TextButton(onClick = onDismiss) { Text("Close") } } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(tenant.fullName) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(tenant.unitName); Text("Monthly rent: ${money(tenant.monthlyRent)}"); Text("Outstanding: ${money(tenant.balance)}", fontWeight = FontWeight.Bold); Text("Due every month on day ${tenant.dueDay}"); Text("Phone: ${tenant.phone}") } }, confirmButton = { Button(onClick = onPayment) { Text("Record payment") } }, dismissButton = { Row { IconButton(onClick = { openWhatsApp(context, tenant.phone, "Hello ${tenant.fullName}, this is a reminder from RentLens regarding your rent balance of ${money(tenant.balance)}.") }) { Icon(Icons.Default.Message, "WhatsApp") }; TextButton(onClick = onDismiss) { Text("Close") } } })
 }
 
 @Composable private fun SyncBanner(count: Int) { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Sync, null); Spacer(Modifier.width(10.dp)); Text("$count payment${if (count == 1) "" else "s"} waiting to sync", fontWeight = FontWeight.Bold) } } }

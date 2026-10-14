@@ -29,10 +29,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             RentLensTheme(darkTheme = darkMode) {
-                RentLensApp(darkMode) {
+                RentLensApp(darkMode = darkMode, onToggleDarkMode = {
                     darkMode = !darkMode
                     preferences.edit().putBoolean("dark_mode", darkMode).apply()
-                }
+                })
             }
         }
     }

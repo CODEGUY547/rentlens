@@ -11,7 +11,8 @@ import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
-import io.github.jan.supabase.postgrest.result.decodeAs
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.UUID
 
@@ -64,10 +65,15 @@ class RentLensRepository(context: Context) {
 
     private suspend fun syncOne(row: PendingPayment) {
         try {
-            supabase.postgrest.rpc(
-                "record_rent_payment_v2",
-                RecordPaymentParams(row.tenantId, row.amount, row.method, row.reference, row.paidAt, row.id),
-            ).decodeAs<PaymentResult>()
+            val parameters = buildJsonObject {
+                put("p_tenant_id", row.tenantId)
+                put("p_amount", row.amount)
+                put("p_payment_method", row.method)
+                row.reference?.let { put("p_reference", it) }
+                put("p_paid_at", row.paidAt)
+                put("p_idempotency_key", row.id)
+            }
+            supabase.postgrest.rpc("record_rent_payment_v2", parameters)
             dao.remove(row.id)
         } catch (error: Throwable) {
             dao.save(row.copy(attempts = row.attempts + 1, lastError = error.message))
