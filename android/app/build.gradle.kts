@@ -23,12 +23,21 @@ android {
     namespace = "com.rentlens.app"
     compileSdk = 36
 
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("rentlens-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.rentlens.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         buildConfigField("String", "SUPABASE_URL", quotedProperty("SUPABASE_URL"))
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", quotedProperty("SUPABASE_PUBLISHABLE_KEY"))
     }
