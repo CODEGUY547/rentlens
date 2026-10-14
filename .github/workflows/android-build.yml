@@ -29,7 +29,7 @@ jobs:
         run: |
           chmod +x gradlew
           set +e
-          ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee build.log
+          ./gradlew :app:assembleDebug --console=plain 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             {
@@ -39,7 +39,7 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
 
-            output=$(tail -n 120 build.log)
+            output=$(tail -n 160 build.log)
             output=${output//'%'/'%25'}
             output=${output//$'\r'/'%0D'}
             output=${output//$'\n'/'%0A'}
