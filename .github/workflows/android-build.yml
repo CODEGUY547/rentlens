@@ -45,13 +45,6 @@ jobs:
             output=${output//$'\n'/'%0A'}
             echo "::error title=Android compiler output::$output"
 
-            tail -n 240 build.log > ../android-build-error.log
-            cd ..
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add android-build-error.log
-            git commit -m "Record Android build diagnostics [skip ci]" || true
-            git push
             exit "$status"
           fi
       - name: Upload APK
@@ -61,3 +54,14 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Publish latest installable APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk RentLens.apk
+          gh release view android-latest >/dev/null 2>&1 || \
+            gh release create android-latest --target "$GITHUB_SHA" \
+              --title "RentLens Android — latest test build" \
+              --notes "Installable Android build connected to the live RentLens Supabase project." \
+              --prerelease
+          gh release upload android-latest RentLens.apk --clobber
