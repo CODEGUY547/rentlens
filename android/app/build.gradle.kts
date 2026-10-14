@@ -21,7 +21,7 @@ fun quotedProperty(name: String): String {
 
 android {
     namespace = "com.rentlens.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.rentlens.app"
